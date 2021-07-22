@@ -44,12 +44,13 @@ static Integer getMinMinBtwPolls()	{ return 3 }
 definition(
 	name:			"Husqvarna AutoMower Manager",
 	namespace:		myNamespace,
-	author:			"Eric S.",
+	author:			"imnot_bob",
 	description:		"Connect your Husqvarna AutoMowers, along with a Suite of Helper Apps.",
-	category:		"My Apps",
+	category:		"Integrations",
 	iconUrl:		"https://s3.amazonaws.com/smartapp-icons/Convenience/Cat-Convenience.png",
 	iconX2Url:		"https://s3.amazonaws.com/smartapp-icons/Convenience/Cat-Convenience@2x.png",
 	iconX3Url:		"https://s3.amazonaws.com/smartapp-icons/Convenience/Cat-Convenience@2x.png",
+	importUrl:		"https://raw.githubusercontent.com/imnotbob/AutoMower/master/automower-connect.groovy",
 	singleInstance:		true,
 	oauth:			true
 )

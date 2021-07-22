@@ -28,8 +28,8 @@ metadata {
 	definition (
 		name:			"Husqvarna AutoMower",
 		namespace:		"imnotbob",
-		author:			"Eric S.",
-		//importUrl:   	"https://raw.githubusercontent.com/SANdood/Ecobee-Suite/master/devicetypes/sandood/ecobee-suite-thermostat.src/ecobee-suite-thermostat.groovy"
+		author:			"imnot_bob",
+		importUrl:		"https://raw.githubusercontent.com/imnotbob/AutoMower/master/mower-device.groovy"
 	)
 	{
 		capability "Actuator"
