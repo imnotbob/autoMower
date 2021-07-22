@@ -8,7 +8,7 @@
  *	on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
  *	for the specific language governing permissions and limitations under the License.
  *
- *  Modified July 21, 2021
+ *  Modified July 22, 2021
  */
 
 static String getVersionNum() 		{ return "00.00.01" }
@@ -49,8 +49,6 @@ metadata {
 		attribute 'mowerConnected',	'STRING' // TRUE or FALSE
 		attribute 'mowerTimeStamp',	'STRING' // LAST TIME connected (EPOCH LONG)
 		//attribute 'battery'		'NUMBER' // Battery %
-		//attribute 'motion'		'ENUM' // active, inactive
-		//attribute 'powerSource'	'ENUM' // "battery", "dc", "mains", "unknown"
 		attribute 'errorCode',		'STRING' // current error code
 		attribute 'errorTimeStamp',	'NUMBER' // (EPOCH LONG)
 		attribute 'plannerNextStart',	'NUMBER' // (EPOCH LONG)
@@ -59,11 +57,17 @@ metadata {
 		attribute 'model', 'STRING'
 		attribute 'serialNumber', 'STRING'
 
-		attribute 'apiConnected',						'STRING'
-		attribute 'debugEventFromParent',				'STRING'		// Read only
-		attribute 'debugLevel', 						'NUMBER'		// Read only - changed in preferences
-		attribute 'lastPoll', 							'STRING'
-
+		attribute 'apiConnected',		'STRING'
+		attribute 'debugEventFromParent',	'STRING'		// Read only
+		attribute 'debugLevel', 		'NUMBER'		// Read only - changed in preferences
+		attribute 'lastPoll', 			'STRING'
+// deductions
+		//attribute 'motion'		'ENUM' // active, inactive
+		//attribute 'powerSource'	'ENUM' // "battery", "dc", "mains", "unknown"
+		attribute 'stuck',	'STRING' // TRUE or FALSE
+		attribute 'parked',	'STRING' // TRUE or FALSE
+		attribute 'hold',	'STRING' // TRUE or FALSE
+		attribute 'holdUntil',	'STRING' // TRUE or FALSE
 
 		command "start",		 			['NUMBER'] // duration
 		command "pause", 					[]

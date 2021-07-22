@@ -10,7 +10,7 @@
  *
  *	Husqvarna AutoMower
  *
- *  Modified July 21, 2021
+ *  Modified July 22, 2021
  *
  *  Instructions:
  *	Go to developer.husqvarnagroup.cloud
@@ -739,7 +739,10 @@ Boolean weAreLost(String msgH, String meth){
 Map<String,String> getAutoMowers(Boolean frc=false, String meth="followup", Boolean isRetry=false){
 	String msgH="getAutoMowers(force: $frc, calledby: $meth, isRetry: $isRetry) | "
 
-	String msg= sBLANK // "====> entered "
+	String msg=sBLANK
+	if(debugLevel(4)) { LOG(msgH+"====> entered ",4,sTRACE) }
+	else LOG(msgH+msg, 3,sTRACE)
+
 	if(weAreLost(msgH, 'getAutoMowers')){
 		return null
 	}
@@ -748,7 +751,7 @@ Map<String,String> getAutoMowers(Boolean frc=false, String meth="followup", Bool
 	Boolean myfrc=(!state.mowerData || !state.mowersWithNames)
 	Integer lastU=getLastTsValSecs("getAutoUpdDt")
 	if( (frc && lastU < 60)) { skipIt=true }
-	if( (!frc && lastU < 600) ) { skiptIt=true }
+	if( (!frc && lastU < 150) ) { skiptIt=true } // related to getMinMinBtwPolls
 	Map<String, String> mowers=[:]
 	Map mowersLocation=[:]
 
@@ -765,9 +768,11 @@ Map<String,String> getAutoMowers(Boolean frc=false, String meth="followup", Bool
 				query: null,
 				timeout: 30
 		]
-		//log.debug msgH+"http params -- ${deviceListParams}"
-		LOG(msgH+msg,2,sTRACE)
-		msg=sBLANK
+		if(debugLevel(4)) {
+			msg+="http params -- ${deviceListParams}"
+			LOG(msgH+msg, 4,sTRACE)
+			msg=sBLANK
+		}
 
 		try {
 			httpGet(deviceListParams) { resp ->
@@ -841,7 +846,11 @@ Boolean sendCmdToHusqvarna(String mowerId, Map data, Boolean isRetry=false){
 		return false
 	}
 
-	String msg="====> entered "
+	String msg=sBLANK
+	if(debugLevel(4)) { msg+="====> entered " }
+	LOG(msgH+msg, 3,sTRACE)
+	msg=sBLANK
+
 	if(weAreLost(msgH, 'sendCmdToHusqvarna')){
 		return false
 	}
@@ -858,9 +867,11 @@ Boolean sendCmdToHusqvarna(String mowerId, Map data, Boolean isRetry=false){
 			body: new JsonOutput().toJson(data),
 			timeout: 30
 	]
-	log.debug msgH+"http params -- ${deviceListParams}"
-	LOG(msgH+msg, 2,sTRACE)
-	msg=sBLANK
+	if(debugLevel(4)) {
+		msg+="http params -- ${deviceListParams}"
+		LOG(msgH+msg, 4,sTRACE)
+		msg=sBLANK
+	}
 
 	try {
 		httpPost(deviceListParams) { resp ->
@@ -1242,7 +1253,6 @@ void checkPolls(String msgH, Boolean apiOk=true, Boolean frc=false){
 	if(frc || !isDaemonAlive("watchdog", msgH)){ LOG(msgH+"rescheduling watchdog daemon",1,sTRACE); spawnDaemon("watchdog", !frc) }
 }
 
-// Watchdog Checker
 Boolean isDaemonAlive(String daemon="all", String msgI){
 	String msgH="isDaemonAlive(${daemon}, calledby: ${msgI}) | "
 	String msg=sBLANK
@@ -1267,7 +1277,6 @@ Boolean isDaemonAlive(String daemon="all", String msgI){
 	}
 
 	if(!daemonList.contains(daemon) ){
-		// Unkown option passed in, gotta punt
 		msg += " - Unknown daemon: ${daemon} received. Do not know how to check this daemon."
 		LOG(msgH+msg, 1, sERROR)
 		result=false
@@ -1282,12 +1291,12 @@ Boolean isDaemonAlive(String daemon="all", String msgI){
 Map checkT(String typ, Long lVal, Integer intervalMins){
 	Boolean result=true
 	Long lastScheduled=lVal
-	Long timeSinceLast=!lastScheduled ? 1000L : ((now() - lastScheduled) / 60000)
+	Long timeSinceLastMins=!lastScheduled ? 1000L : ((now() - lastScheduled) / 60000)
 	String msg=sBLANK
 	msg += "Checking daemon ${typ} | "
 	msg += "Time since last ${timeSinceLast} mins -- lastScheduled == ${lastScheduled} | "
 
-	if( timeSinceLast >= (intervalMins + 2)) result=false
+	if( timeSinceLastMins >= (intervalMins + getMinMinBtwPolls() + 2)) result=false
 	msg += !result ? "Not running | " : sBLANK
 	return [res: result, msg: msg]
 }
@@ -1503,6 +1512,15 @@ Boolean pollChildren(String deviceId=sBLANK,Boolean force=false){
 			Map srcMap=getMowerMap(mower)
 			Boolean moving=(String)srcMap.attributes.mower.activity in [ 'MOWING', 'GOING_HOME', 'LEAVING' ]
 			Boolean onMain=(String)srcMap.attributes.mower.activity in [ 'CHARGING', 'PARKED_IN_CS' ]
+			Boolean stuck=( (String)srcMap.attributes.mower.activity in [ 'STOPPED_IN_GARDEN' ] ||
+				 (String)srcMap.attributes.mower.state in [ 'PAUSED', 'OFF', 'STOPPED', 'ERROR', 'FATAL_ERROR', 'ERROR_AT_POWER_UP' ] )
+			Boolean parked=( (String)srcMap.attributes.mower.activity in [ 'PARKED_IN_CS', 'CHARGING' ]) 
+			Boolean hold=( parked &&
+				 (String)srcMap.attributes.mower.state in [ 'RESTRICTED' ]  &&
+				 srcMap.attributes.planner.nextStartTimestamp == 0)
+			Boolean holdUntil=( parked &&
+				 (String)srcMap.attributes.mower.state in [ 'RESTRICTED' ]  &&
+				 srcMap.attributes.planner.nextStartTimestamp != 0)
 			String dbg=settings.debugLevel == null ? "2" : settings.debugLevel
 
 			if(srcMap) {
@@ -1517,12 +1535,17 @@ Boolean pollChildren(String deviceId=sBLANK,Boolean force=false){
 				flist << ['mowerConnected':	srcMap.attributes.metadata.connected] // TRUE or FALSE
 				flist << ['mowerTimeStamp'	: srcMap.attributes.metadata.statusTimestamp] // LAST TIME connected (EPOCH LONG)
 				flist << ['battery': srcMap.attributes.battery.batteryPercent] // Battery %
-				flist << ['motion': moving ? 'active' : 'inactive']
-				flist << ['powerSource': onMain ? 'mains' : 'battery'] // "battery", "dc", "mains", "unknown"
 				flist << ['errorCode':	srcMap.attributes.mower.errorCode ] // STRING
 				flist << ['errorTimeStamp': srcMap.attributes.mower.errorCodeTimestamp] // (EPOCH LONG)
 				flist << ['plannerNextStart': srcMap.attributes.planner.nextStartTimestamp] // (EPOCH LONG)
 				flist << ['plannerOverride'	: srcMap.attributes.planner.override.action] // Override Action
+
+				flist << ['motion': moving ? 'active' : 'inactive']
+				flist << ['powerSource': onMain ? 'mains' : 'battery'] // "battery", "dc", "mains", "unknown"
+				flist << ['stuck': stuck]
+				flist << ['parked': parked]
+				flist << ['hold': hold]
+				flist << ['holdUntil': holdUntil]
 
 				flist << [apiConnected: apiConnection]
 				flist << [lastPoll: slastPoll]
