@@ -1,0 +1,17 @@
+{
+  "author": "imnotbob",
+  "gitHubUrl": "https://github.com/imnotbob",
+  "packages": [
+    {
+      "name": "Husqvarna AutoMower Connect",
+      "category": "Integrations",
+      "tags": [
+		"Automations & Groups",
+		"Misc. Devices",
+		"Tools & Utilities"
+       ],
+      "location": "https://raw.githubusercontent.com/imnotbob/AutoMower/master/HE/packageManager.json",
+      "description": "AutoMower Integration for Hubitat - control and monitor your Husqvarna AutoMower on your Hubitat system"
+    }
+  ]
+}
