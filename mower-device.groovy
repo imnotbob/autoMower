@@ -15,6 +15,7 @@ static String getVersionNum() 		{ return "00.00.01" }
 static String getVersionLabel() 	{ return "Husqvarna AutoMower, version ${getVersionNum()}" }
 
 import groovy.transform.Field
+import java.text.SimpleDateFormat
 
 @Field static final String sNULL	= (String)null
 @Field static final String sBLANK	= ''
@@ -67,7 +68,8 @@ metadata {
 		attribute 'stuck',	'STRING' // TRUE or FALSE
 		attribute 'parked',	'STRING' // TRUE or FALSE
 		attribute 'hold',	'STRING' // TRUE or FALSE
-		attribute 'holdUntil',	'STRING' // TRUE or FALSE
+		attribute 'holdUntilNext',	'STRING' // TRUE or FALSE
+		attribute 'holdIndefinite',	'STRING' // TRUE or FALSE
 
 		command "start",		 			['NUMBER'] // duration
 		command "pause", 					[]
@@ -83,6 +85,7 @@ metadata {
 }
 
 // parse events into attributes
+@SuppressWarnings('unused')
 def parse(String description) {
 	LOG("parse() --> Parsing ${description}", 4, sTRACE)
 }
@@ -93,7 +96,7 @@ def refresh(Boolean force=false) {
 	parent.pollFromChild(getDeviceId(), force) // tell parent to just poll me silently -- can't pass child/this for some reason
 }
 
-def doRefresh() {
+void doRefresh() {
 	// Pressing refresh within 6 seconds of the prior refresh completing will force a complete poll - otherwise changes only
 	refresh(state.lastDoRefresh?((now()-state.lastDoRefresh)<6000):false)
 	state.lastDoRefresh = now()	// reset the timer after the UI has been updated
@@ -104,12 +107,14 @@ def forceRefresh() {
 	refresh(true)
 }
 
+@SuppressWarnings('unused')
 def installed() {
 	LOG("${device.label} being installed",2,sINFO)
 	if (device.label?.contains('TestingForInstall')) return	// we're just going to be deleted in a second...
 	updated()
 }
 
+@SuppressWarnings('unused')
 def uninstalled() {
 	LOG("${device.label} being uninstalled",2,sINFO)
 }
@@ -124,6 +129,7 @@ def updated() {
 	runIn(2, 'forceRefresh', [overwrite: true])
 }
 
+@SuppressWarnings('unused')
 def poll() {
 	LOG("Executing 'poll' using parent App", 2, sINFO)
 	parent.pollFromChild(getDeviceId(), false) // tell parent to just poll me silently -- can't pass child/this for some reason
@@ -139,9 +145,10 @@ def generateEvent(List<Map<String,Object>> updates) {
 	//if (!state.version || (state.version != getVersionLabel())) updated()
 	String myVersion = getDataValue("myVersion")
 	if (!myVersion || (myVersion != getVersionLabel())) updated()
+	String msgH="generateEvent() | "
 	Long startMS = now()
 	Boolean debugLevelFour = debugLevel(4)
-	if (debugLevelFour) LOG("generateEvent(): parsing data ${updates}",4, sTRACE)
+	if (debugLevelFour) LOG(msgH+"parsing data ${updates}",4, sTRACE)
 	//LOG("Debug level of parent: ${getParentSetting('debugLevel')}", 4, sDEBUG)
 //	String linkText = device.displayName
 	Boolean forceChange = false
@@ -158,7 +165,7 @@ def generateEvent(List<Map<String,Object>> updates) {
 					Map eventFront = [name: name ]
 					objectsUpdated++
 					Map event
-					if (debugLevelFour) LOG("generateEvent() - In each loop: object #${objectsUpdated} name: ${name} value: ${value}", 5, sTRACE)
+					if (debugLevelFour) LOG(msgH+"processing object #${objectsUpdated} name: ${name} value: "+sendValue, 5, sTRACE)
 					event = eventFront + [value: sendValue]
 
 					switch (name) {
@@ -192,16 +199,16 @@ def generateEvent(List<Map<String,Object>> updates) {
 									LOG(msg,1,sERROR)
 									break
 								case sTRACE:
-									LOG(msg, 1, sTRACE)
+									LOG(msg,1,sTRACE)
 									break
 								case sINFO:
-									LOG(msg, 1, sINFO)
+									LOG(msg,1,sINFO)
 									break
 								case sWARN:
-									LOG(msg, 1, sWARN)
+									LOG(msg,1,sWARN)
 									break
 								default:
-									LOG(msg, 1, sDEBUG)
+									LOG(msg,1,sDEBUG)
 							}
 							break
 
@@ -212,29 +219,33 @@ def generateEvent(List<Map<String,Object>> updates) {
 							break
 
 						default:
-							if (name.endsWith("Updated")) {		// internal timestamps for updates
-								event = eventFront + [value: sendValue, descriptionText: "${name} at ${sendValue}" ]
-							} else {
-								event = eventFront + [value: sendValue, descriptionText: "${name} is ${sendValue}" ]
+							String desc = name + " is " + sendValue
+							if (name.endsWith("TimeStamp") || name.endsWith("NextStart")) {
+								if(sendValue != sNULL && sendValue != 'null' && sendValue != "0"){
+									Date aa = new Date(sendValue.toLong())
+									desc = name + " is " + formatDt(aa)
+								}
 							}
+							event = eventFront + [value: sendValue, descriptionText: desc ]
 							break
 					}
 					if (event) {
-						if (debugLevelFour) LOG("generateEvent() - Out of switch{}, calling sendevent(${event})", 4, sTRACE)
+						if (debugLevelFour) LOG(msgH+"calling sendevent(${event})", 4, sTRACE)
 						sendEvent(event)
 					}
-				} else LOG("${name} did not change", 5, sTRACE)
+				} else LOG(msgH+"${name} did not change", 5, sTRACE)
 			}
 		}
-	} else LOG('no updates')
+	} else LOG(msgH+'NO UPDATES')
 	Long elapsed = now() - startMS
-	LOG("Updated ${objectsUpdated} object${objectsUpdated!=1?'s':''} (${elapsed}ms)", 4, sINFO)
+	LOG(msgH+"Updated ${objectsUpdated} object${objectsUpdated!=1?'s':''} (${elapsed}ms)", 4, sINFO)
 }
 
 // ***************************************************************************
 // commands
 // API calls and UI handling
 // ***************************************************************************
+@SuppressWarnings('unused')
 void start(mins) {
 	LOG("start($mins)", 3,  sTRACE)
 	Map foo = [data:[type:'Start',attributes:[duration:mins]]]
@@ -243,6 +254,7 @@ void start(mins) {
 	}
 }
 
+@SuppressWarnings('unused')
 void pause(){
 	LOG("pause",3, sTRACE)
 	Map foo = [data:[type:'Pause']]
@@ -269,6 +281,7 @@ void parkindefinite() {
 	}
 }
 
+@SuppressWarnings('unused')
 void park(mins) {
 	LOG("park($mins)",3,sTRACE)
 	Map foo = [data:[type:'Park',attributes:[duration:mins]]]
@@ -293,6 +306,12 @@ void off() {
 void on() {
 	LOG('on()', 4,  sTRACE)
 	resumeSchedule()
+}
+
+String formatDt(Date dt, Boolean tzChg=true) {
+        def tf=new SimpleDateFormat("E MMM dd HH:mm:ss z yyyy")
+        if(tzChg) { if(location.timeZone) { tf.setTimeZone(location?.timeZone) } }
+        return (String)tf.format(dt)
 }
 
 String getDeviceId() {
@@ -374,16 +393,7 @@ def getParentSetting(String settingName) {
 	return parent?."${settingName}"
 }
 
-static String getPlatform(){ return sHUBPLATFORM }
-@Field static final String sHUBPLATFORM		= 'Hubitat'
-
 @Field static final List<String> lLOGTYPES =			['error', 'debug', 'info', 'trace', 'warn']
-
-static String getInfo()				{ return sINFO }
-static String getWarn()				{ return sWARN }
-static String getTrace()			{ return sTRACE }
-static String getDebug()			{ return sDEBUG }
-static String getError()			{ return sERROR }
 
 @Field static final String sDEBUG		= 'debug'
 @Field static final String sERROR		= 'error'
