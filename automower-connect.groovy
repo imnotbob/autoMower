@@ -31,7 +31,7 @@ import java.text.SimpleDateFormat
 static String getVersionNum()		{ return "00.00.01" }
 static String getVersionLabel()		{ return "Husqvarna Automower Manager, version "+getVersionNum() }
 static String getMyNamespace()		{ return "imnotbob" }
-static Integer getMinMinBtwPolls()	{ return 3 }
+static Integer getMinMinsBtwPolls()	{ return 3 }
 static String getAutoMowerName()	{ return "Husqvarna AutoMower" }
 
 @Field static final String sNULL	= (String)null
@@ -121,10 +121,10 @@ def mainPage(){
 				// Mowers
 				href ("mowersPage", title: inputTitle("Mowers"), description: "'Click' to select AutoMowers [${howManyMowersSel}/${howManyMowers}]")
 			}
-			section(sectionTitle("Preferences")){
-				href ("preferencesPage", title: inputTitle("AutoMower Preferences"), description: "'Click' to manage global Preferences")
-			}
+		}
 
+		section(sectionTitle("Preferences")){
+			href ("preferencesPage", title: inputTitle("AutoMower Preferences"), description: "'Click' to manage global Preferences")
 		}
 
 		String authDesc=((String)state.authToken) ? "[Connected]\n" :"[Not Connected]\n"
@@ -520,19 +520,19 @@ String getHusqvarnaApiSecret(){ return (String)settings.apiSecret }
 
 // OAuth Init URL
 String oauthInitUrl(){
-	LOG("oauthInitUrl with callback: ${callbackUrl}", 4)
-	state.oauthInitState=stateUrl // HE does redirect a little differently
+	LOG("oauthInitUrl", 4)
+	state.oauthInitState=getStateUrl() // HE does redirect a little differently
 	//log.debug "oauthInitState: ${state.oauthInitState}"
 
 	Map oauthParams=[
 		response_type:	"code",
-		client_id:	husqvarnaApiKey,					// actually, the AutoMower Manager app's client ID
+		client_id:	getHusqvarnaApiKey(),					// actually, the AutoMower Manager app's client ID
 		scope:		"app",
-		redirect_uri:	callbackUrl,
+		redirect_uri:	getCallbackUrl(),
 		state:		state.oauthInitState
 	]
 
-	String res= "${apiEndpoint}/authorize?${toQueryString(oauthParams)}"
+	String res= getApiEndpoint()+"/authorize?${toQueryString(oauthParams)}"
 	LOG("oauthInitUrl - location: ${res}", 4, sDEBUG)
 	return res
 }
@@ -582,19 +582,20 @@ def callback(){
 		Map rdata=[
 				grant_type: "authorization_code",
 				code	: code,
-				client_id : husqvarnaApiKey,
-				client_secret : husqvarnaApiSecret,
-				state	: oauthState
-//			redirect_uri: callbackUrl,
+				client_id : getHusqvarnaApiKey(),
+				client_secret : getHusqvarnaApiSecret(),
+				state	: oauthState,
+				redirect_uri: callbackUrl,
 		]
 
-		//String tokenUrl="${apiEndpoint}/token?${toQueryString(tokenParams)}"
-		String tokenUrl="${apiEndpoint}/token"
+		//String tokenUrl=getApiEndpoint()+"/token?${toQueryString(tokenParams)}"
+		String tokenUrl=getApiEndpoint()+"/token"
 		String data=rdata.collect{ String k,v -> encodeURIComponent(k)+'='+encodeURIComponent(v) }.join('&')
 		Map reqP=[
 				uri: tokenUrl,
 				query: null,
 				contentType: "application/x-www-form-urlencoded",
+//				requestContentType: "application/json",
 				body: data,
 				timeout: 30
 		]
@@ -614,18 +615,20 @@ def callback(){
 
 					LOG("Expires in ${ndata.expires_in} seconds", 3)
 					LOG("swapped token: $ndata; state.refreshToken: ${state.refreshToken}; state.authToken: ${(String)state.authToken}", 3)
-				}
+					state.remove('oauthInitState')
+                    success()
+				} else { fail() }
 			}
 		} catch(Exception e){
 			LOG("auth callback()", 1, sERROR, e)
 			//if(resp) parseAuthResponse(resp)
+			fail()
 		}
-		if((String)state.authToken){ success() }else{ fail() }
-
 	}else{
 		LOG("callback() failed oauthState != state.oauthInitState", 1, sWARN)
+        fail()
 	}
-	state.remove('oauthInitState')
+    /* no code here */
 }
 
 def success(){
@@ -644,15 +647,16 @@ def fail(){
 	connectionStatus(message)
 }
 
-def connectionStatus(String message, String redirectUrl=sNULL){
+def connectionStatus(String message, Boolean close=true){
 	//noinspection GroovyUnusedAssignment
-	String redirectHtml=sBLANK
+	String redirectHtml = close ? """<script>document.getElementsByTagName('html')[0].style.cursor = 'wait';setTimeout(function(){window.close()},2500);</script>""" : sBLANK
+	/*String redirectHtml=sBLANK
 	if(redirectUrl){
 		//noinspection GroovyUnusedAssignment
 		redirectHtml="""
 			<meta http-equiv="refresh" content="3; url=${redirectUrl}" />
 		"""
-	}
+	} */
 	String hubIcon='https://raw.githubusercontent.com/SANdood/Icons/master/Hubitat/HubitatLogo.png'
 
 	String html="""
@@ -711,9 +715,10 @@ def connectionStatus(String message, String redirectUrl=sNULL){
 				<img src="${hubIcon}" alt="Hubitat logo" />
 				${message}
 		</div>
+	${redirectHtml}
 </body>
 </html>
-"""
+""".toString()
 	render contentType: 'text/html', data: html
 }
 /* """ */
@@ -736,8 +741,12 @@ static String myObj(obj){
 }
 
 Boolean weAreLost(String msgH, String meth){
+	String msg = sBLANK
+	if(!(String)state.authToken) {
+		apiLost(msgH+"weAreLost() found no auth token, called by ${meth}")
+	}
 	if(apiConnected() == sLOST){
-		String msg = "found connection lost to husqvarna | "
+		msg += "found connection lost to husqvarna | "
 		if( refreshAuthToken(meth) ){
 			msg += " - Was able to recover the lost connection. Please ignore any notifications received. | "
 			LOG(msgH+msg, 4, sINFO)
@@ -766,14 +775,14 @@ Map<String,String> getAutoMowers(Boolean frc=false, String meth="followup", Bool
 	Boolean myfrc=(!state.mowerData || !state.mowersWithNames)
 	Integer lastU=getLastTsValSecs("getAutoUpdDt")
 	if( (frc && lastU < 60)) { skipIt=true }
-	if( (!frc && lastU < 150) ) { skiptIt=true } // related to getMinMinBtwPolls
+	if( (!frc && lastU < 150) ) { skiptIt=true } // related to getMinMinsBtwPolls
 	Map<String, String> mowers=[:]
 	Map mowersLocation=[:]
 
 	if(myfrc || !skipIt) {
 		updTsVal("getAutoUpdDt")
 		Map deviceListParams=[
-			uri: mowerApiEndpoint +"/mowers",
+			uri: getMowerApiEndpoint() +"/mowers",
 			headers: [
 				"Content-Type": "application/vnd.api+json",
 				"Authorization": "Bearer ${(String)state.authToken}",
@@ -874,7 +883,7 @@ Boolean sendCmdToHusqvarna(String mowerId, Map data, Boolean isRetry=false){
 	}
 
 	Map deviceListParams=[
-		uri: mowerApiEndpoint +"/mowers"+"/${mowerId}/actions",
+		uri: getMowerApiEndpoint() +"/mowers"+"/${mowerId}/actions",
 		headers: [
 			"Content-Type": "application/vnd.api+json",
 			"Authorization": "Bearer ${(String)state.authToken}",
@@ -1301,7 +1310,7 @@ Map checkT(String typ, Long lVal, Integer intervalMins){
 	msg += "Checking daemon ${typ} | "
 	msg += "Time since last ${timeSinceLast} mins -- lastScheduled == ${lastScheduled} | "
 
-	if( timeSinceLastMins >= (intervalMins + getMinMinBtwPolls() + 2)) result=false
+	if( timeSinceLastMins >= (intervalMins + getMinMinsBtwPolls() + 2)) result=false
 	msg += !result ? "Not running | " : sBLANK
 	return [res: result, msg: msg]
 }
@@ -1321,7 +1330,7 @@ Boolean spawnDaemon(String daemon="all", Boolean unsched=true){
 		try {
 			if(unsched){ unschedule(pollScheduled) }
 			"runEvery${pollingInterval}Minute${pollingInterval!=1?'s':sBLANK}"(pollScheduled)
-			state.lastScheduledPoll= now() - (getMinMinBtwPolls()*60000L) 
+			state.lastScheduledPoll= now() - (getMinMinsBtwPolls()*60000L)
 			state.lastScheduledPollDate=getTimestamp()
 			//updateLastPoll(true)
 			if(unsched){ // Only poll now if we were recovering - otherwise whoever called will handle the poll (as in initialize())
@@ -1435,7 +1444,7 @@ Boolean pollChildren(String deviceId=sBLANK,Boolean force=false){
 
 	Long last = Math.max(((Long)state.lastPoll ?: 0L), ((Long)state.lastScheduledPoll?: 0L))
 	Long aa=now() - last
-	Boolean tooSoon=(aa < (getMinMinBtwPolls()*60000L))
+	Boolean tooSoon=(aa < (getMinMinsBtwPolls()*60000L))
 	if(tooSoon || debugLevelFour) {
 		LOG(msgH+"=====> state.lastPoll(${state.lastPoll}) now(${now()}) state.lastPollDate(${state.lastPollDate})", 2, sTRACE)
 		LOG(msgH+"=====> state.lastScheduledPoll(${state.lastScheduledPoll}) now(${now()}) state.lastScheduledPollDate(${state.lastScheduledPollDate})", 2, sTRACE)
@@ -1444,6 +1453,7 @@ Boolean pollChildren(String deviceId=sBLANK,Boolean force=false){
 		LOG(msgH+"Too soon poll request, deferring...recent: ${aa/60000L} mins $last",2,sTRACE)
 		state.inPollChildren=false
 		state.remove('inPollChildren')
+		runIn(85, poll, [overwrite: true]) // give time for command to complete; then get new status
 		return result
 	}
 
@@ -1486,17 +1496,17 @@ Boolean pollChildren(String deviceId=sBLANK,Boolean force=false){
 		((List<String>)settings.mowers)?.each {String mower ->
 			List<Map> flist=[]
 			Map srcMap=getMowerMap(mower)
-			Boolean moving=(String)srcMap.attributes.mower.activity in [ 'MOWING', 'GOING_HOME', 'LEAVING' ]
-			Boolean onMain=(String)srcMap.attributes.mower.activity in [ 'CHARGING', 'PARKED_IN_CS' ]
-			Boolean stuck=( (String)srcMap.attributes.mower.activity in [ 'STOPPED_IN_GARDEN' ] ||
-				 (String)srcMap.attributes.mower.state in [ 'PAUSED', 'OFF', 'STOPPED', 'ERROR', 'FATAL_ERROR', 'ERROR_AT_POWER_UP' ] )
-			Boolean parked=( (String)srcMap.attributes.mower.activity in [ 'PARKED_IN_CS', 'CHARGING' ])
-			Boolean hold=( parked && (String)srcMap.attributes.mower.state in [ 'RESTRICTED' ])
-			Boolean holdIndefinite=( hold && srcMap.attributes.planner.nextStartTimestamp == 0)
-			Boolean holdUntilNext=( hold && srcMap.attributes.planner.nextStartTimestamp != 0)
-			String dbg=settings.debugLevel == null ? "2" : settings.debugLevel
-
 			if(srcMap) {
+				Boolean moving=(String)srcMap.attributes.mower.activity in [ 'MOWING', 'GOING_HOME', 'LEAVING' ]
+				Boolean onMain=(String)srcMap.attributes.mower.activity in [ 'CHARGING', 'PARKED_IN_CS' ]
+				Boolean stuck=( (String)srcMap.attributes.mower.activity in [ 'STOPPED_IN_GARDEN' ] ||
+					 (String)srcMap.attributes.mower.state in [ 'PAUSED', 'OFF', 'STOPPED', 'ERROR', 'FATAL_ERROR', 'ERROR_AT_POWER_UP' ] )
+				Boolean parked=( (String)srcMap.attributes.mower.activity in [ 'PARKED_IN_CS', 'CHARGING' ])
+				Boolean hold=( parked && (String)srcMap.attributes.mower.state in [ 'RESTRICTED' ])
+				Boolean holdIndefinite=( hold && srcMap.attributes.planner.nextStartTimestamp == 0)
+				Boolean holdUntilNext=( hold && srcMap.attributes.planner.nextStartTimestamp != 0)
+				String dbg=settings.debugLevel == null ? "2" : settings.debugLevel
+
 				flist << ['name':	(String)srcMap.attributes.system.name ] //STRING
 				flist << ['id':	srcMap.id ] //STRING
 				flist << ['model':	srcMap.attributes.system.model ] //STRING
@@ -1581,12 +1591,13 @@ Boolean refreshAuthToken(String meth, child=null){
 	Boolean debugLevelFour=debugLevel(4)
 //	if(debugLevelFour) LOG('Entered refreshAuthToken()', 4, sTRACE)
 
-	Long timeBeforeExpiry=(Long)state.authTokenExpires && state.authToken ? (Long)state.authTokenExpires - now() : 0
+	Long timeBeforeExpiry=(Long)state.authTokenExpires && state.authToken ? (Long)state.authTokenExpires - now() : 0L
 	Boolean tokenStillGood=(timeBeforeExpiry > 2000L)
 	msg += "Token is ${tokenStillGood ? "valid" : "invalid"} | "
 
-	// check to see if token was recently refreshed (eliminate multiple concurrent threads)
-	if(timeBeforeExpiry > 1800000L){ // 30 mins
+	// check to see if token was recently refreshed
+	Integer pollingIntrvMin=getPollingInterval()+2
+	if(timeBeforeExpiry > (pollingIntrvMin*60000L)){
 		msg += "exiting, token expires in ${timeBeforeExpiry/1000} seconds"
 		if(debugLevelFour) LOG(msgH+msg,4,sINFO)
 		// Double check that the daemons are still running
@@ -1595,19 +1606,18 @@ Boolean refreshAuthToken(String meth, child=null){
 	}
 
 	msg += "Want to refresh token | "
-	if(!state.refreshToken){
-		LOG(msgH+msg+'There is no refreshToken. Unable to refresh OAuth token', 1, sERROR, null, child)
-		if(timeBeforeExpiry < 1L) {
-			state.authToken=sNULL
-			tokenStillGood=false
-			apiLost(msgH+"No refreshToken")
-		}
+	if(!state.refreshToken || timeBeforeExpiry < 30L) {
+		if(msg) { LOG(msgH + msg, 2, sTRACE); msg=sBLANK }
+		apiLost(msgH+"No refresh Token or expired refresh token ${timeBeforeExpiry} ${state.authTokenExpires}")
+		state.authToken=sNULL
+		tokenStillGood=false
+		apiLost(msgH+"No refreshToken")
 	}else{
 		msg +='Performing token refresh'
-		Map rdata=[grant_type: 'refresh_token', client_id: husqvarnaApiKey, refresh_token: "${state.refreshToken}"]
+		Map rdata=[grant_type: 'refresh_token', client_id: getHusqvarnaApiKey(), refresh_token: "${state.refreshToken}"]
 		String data=rdata.collect{ String k,v -> encodeURIComponent(k)+'='+encodeURIComponent(v) }.join('&')
 		Map refreshParams=[
-			uri: "${apiEndpoint}/token",
+			uri: getApiEndpoint()+"/token",
 			query: null,
 			contentType: "application/x-www-form-urlencoded",
 			body: data,
@@ -1616,10 +1626,15 @@ Boolean refreshAuthToken(String meth, child=null){
 
 		if(debugLevelFour){
 			msg +="refreshParams=${refreshParams} "
-			LOG(msgH+msg, 4, sTRACE) // 4
-			msg=sBLANK
+			msg += "OAUTH Token=state: ${(String)state.authToken} "
+			msg += "Refresh Token=state: ${state.refreshToken}  "
 		}
 
+		msg += "state.authTokenExpires=${state.authTokenExpires}  ${formatDt(new Date(state.authTokenExpires))} "
+		if(msg) {
+			LOG(msgH + msg, 2, sTRACE) // 4
+			msg=sBLANK
+		}
 		try {
 			httpPost(refreshParams){ resp ->
 				//if(debugLevelFour) LOG("Inside httpPost resp handling.", 1, sTRACE, null, child)
@@ -1679,12 +1694,12 @@ Boolean refreshAuthToken(String meth, child=null){
 			Integer attempts = (Integer)state.reAttempt
 			attempts= attempts!=null ? attempts+1 : 1
 			state.reAttempt=attempts
-			if(attempts > maxAttempt && timeBeforeExpiry < 1L){
+			if(attempts > maxAttempt || timeBeforeExpiry < 1L){
 				state.authToken=sNULL
 				tokenStillGood=false
-				apiLost(msgH+"Too many retries (${state.reAttempt - 1}) for token refresh.")
+				apiLost(msgH+"Too many retries (${state.reAttempt - 1}) for token refresh, or expired token ${timeBeforeExpiry} ${state.authTokenExpires}")
 			}else{
-				LOG(msgH+"Setting up runIn for refreshAuthToken", 4, sTRACE, null, child) // 4
+				LOG(msgH+"Setting up runIn for refreshAuthToken", 2, sTRACE, null, child) // 4
 				Integer retryFactor = attempts > 12 ? 12 : attempts
 				runIn(iREATTEMPTINTERVAL*retryFactor, retryHelper, [overwrite: true])
 				if(attempts > 3 && apiConnected() == sFULL){

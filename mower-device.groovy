@@ -222,7 +222,14 @@ def generateEvent(List<Map<String,Object>> updates) {
 							String desc = name + " is " + sendValue
 							if (name.endsWith("TimeStamp") || name.endsWith("NextStart")) {
 								if(sendValue != sNULL && sendValue != 'null' && sendValue != "0"){
-									Date aa = new Date(sendValue.toLong())
+									Long t = sendValue.toLong()
+                                    Long n = now()
+									if (name.endsWith("NextStart")) {
+										t -= location.timeZone.getOffset(n) + Math.round(
+												(Integer)location.timeZone.getOffset(t)-(Integer)location.timeZone.getOffset(n)*1.0D )
+
+									}
+									Date aa = new Date(t)
 									desc = name + " is " + formatDt(aa)
 								}
 							}
