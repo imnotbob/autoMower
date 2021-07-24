@@ -763,9 +763,8 @@ Boolean weAreLost(String msgH, String meth){
 Map<String,String> getAutoMowers(Boolean frc=false, String meth="followup", Boolean isRetry=false){
 	String msgH="getAutoMowers(force: $frc, calledby: $meth, isRetry: $isRetry) | "
 
-	String msg=sBLANK
 	if(debugLevel(4)) { LOG(msgH+"====> entered ",4,sTRACE) }
-	else LOG(msgH+msg, 3,sTRACE)
+	else LOG(msgH, 3,sTRACE)
 
 	if(weAreLost(msgH, 'getAutoMowers')){
 		return null
@@ -779,6 +778,8 @@ Map<String,String> getAutoMowers(Boolean frc=false, String meth="followup", Bool
 	Map<String, String> mowers=[:]
 	Map mowersLocation=[:]
 
+	String msg=sBLANK
+
 	if(myfrc || !skipIt) {
 		updTsVal("getAutoUpdDt")
 		Map deviceListParams=[
@@ -787,14 +788,17 @@ Map<String,String> getAutoMowers(Boolean frc=false, String meth="followup", Bool
 				"Content-Type": "application/vnd.api+json",
 				"Authorization": "Bearer ${(String)state.authToken}",
 				"Authorization-Provider": "husqvarna",
-				"X-Api-Key":husqvarnaApiKey
+				"X-Api-Key":getHusqvarnaApiKey()
 			],
 			query: null,
 			timeout: 30
 		]
 		if(debugLevel(4)) {
-			msg+="http params -- ${deviceListParams}"
-			LOG(msgH+msg, 4,sTRACE)
+			msg+="http params -- ${deviceListParams} "
+		}
+		msg +="HTTPGET "
+		if(msg) {
+			LOG(msgH + msg, 3, sTRACE)
 			msg=sBLANK
 		}
 
@@ -826,8 +830,6 @@ Map<String,String> getAutoMowers(Boolean frc=false, String meth="followup", Bool
 					LOG(msgH + "httpGet() in else: http status: ${resp.status}", 1, sTRACE)
 					//refresh the auth token
 					if(resp.status == 500) { //} && resp.data?.status?.code == 14) {
-						//LOG(msgH + "Storing the failed action to try later", 1, sTRACE)
-						//state.action="getAutoMowers"
 						if(!isRetry){
 							LOG(msgH + "Refreshing auth_token!", 3, sTRACE)
 							if(refreshAuthToken('getAutoMowers')) return getAutoMowers(frc, meth, true)
@@ -840,7 +842,6 @@ Map<String,String> getAutoMowers(Boolean frc=false, String meth="followup", Bool
 			}
 		} catch(Exception e) {
 			LOG(msgH + "___exception", 1, sERROR, e)
-			//state.action="getAutoMowers"
 			if(!isRetry) {
 				//noinspection GroovyUnusedAssignment
 				Boolean a = refreshAuthToken('getAutoMowers')
@@ -861,22 +862,20 @@ Map<String,String> getAutoMowers(Boolean frc=false, String meth="followup", Bool
 
 /*
  * max 1 command per second
- * Command are queued at Husqvarna, and executed when mower checks in
+ * Commands are queued at Husqvarna, and executed when mower checks in
  */
 @SuppressWarnings('unused')
-Boolean sendCmdToHusqvarna(String mowerId, Map data, Boolean isRetry=false){
-	String msgH="sendCmdToHusqvarna(mower: $mowerId, data: $data, isRetry: $isRetry) | "
+Boolean sendCmdToHusqvarna(String mowerId, Map data, Boolean isRetry=false) {
+	String msgH = "sendCmdToHusqvarna(mower: $mowerId, data: $data, isRetry: $isRetry) | "
 
-	Boolean ok=(mowerId && mowerId in (List<String>)settings.mowers)
-	if(!ok) {
-		LOG(msgH+"mower not enabled in settings: $settings.mowers", 1, sERROR)
+	Boolean ok = (mowerId && mowerId in (List<String>) settings.mowers)
+	if (!ok) {
+		LOG(msgH + "mower not enabled in settings: $settings.mowers", 1, sERROR)
 		return false
 	}
 
-	String msg=sBLANK
-	if(debugLevel(4)) { msg+="====> entered " }
-	LOG(msgH+msg, 3,sTRACE)
-	msg=sBLANK
+	if (debugLevel(4))  LOG(msgH + "===> entered", 4, sTRACE)
+	else LOG(msgH, 3,sTRACE)
 
 	if(weAreLost(msgH, 'sendCmdToHusqvarna')){
 		return false
@@ -888,15 +887,19 @@ Boolean sendCmdToHusqvarna(String mowerId, Map data, Boolean isRetry=false){
 			"Content-Type": "application/vnd.api+json",
 			"Authorization": "Bearer ${(String)state.authToken}",
 			"Authorization-Provider": "husqvarna",
-			"X-Api-Key":husqvarnaApiKey
+			"X-Api-Key":getHusqvarnaApiKey()
 		],
 		query: null,
 		body: new JsonOutput().toJson(data),
 		timeout: 30
 	]
+	String msg = sBLANK
 	if(debugLevel(4)) {
-		msg+="http params -- ${deviceListParams}"
-		LOG(msgH+msg, 4,sTRACE)
+		msg+="http params -- ${deviceListParams} "
+	}
+	msg +="HTTPPOST "
+	if(msg) {
+		LOG(msgH + msg, 2, sTRACE)
 		msg=sBLANK
 	}
 
@@ -910,7 +913,7 @@ Boolean sendCmdToHusqvarna(String mowerId, Map data, Boolean isRetry=false){
 				if(rdata) adata=(Map)new JsonSlurper().parseText(rdata)
 			}*/
 			if(resp && resp.isSuccess() && resp.status >= 200 && resp.status <= 299) {
-				LOG(msgH + "httpPost() ${resp.status} Response", 3, sTRACE)
+				LOG(msgH + "httpPost() ${resp.status} Response", 2, sTRACE)
 				runIn(85, poll, [overwrite: true]) // give time for command to complete; then get new status
 			}else{
 				LOG(msgH + "httpPost() in else: http status: ${resp.status}", 1, sTRACE)
@@ -1929,7 +1932,7 @@ void apiRestored(Boolean chkP=true){
 }
 
 Map getDebugDump(){
-	Map debugParams=[when:"${getTimestamp()}", whenEpic:"${now()}",
+	Map debugParams=[when:"${getTimestamp()}", whenEpoch:"${now()}",
 				lastPollDate:"${state.lastScheduledPollDate}", lastScheduledPollDate:"${state.lastScheduledPollDate}",
 				lastScheduledWatchdogDate:"${state.lastScheduledWatchdogDate}",
 				lastTokenRefreshDate:"${state.lastTokenRefreshDate}",
