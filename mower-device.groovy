@@ -8,8 +8,9 @@
  *	on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
  *	for the specific language governing permissions and limitations under the License.
  *
- *  Modified July 22, 2021
+ *  Modified July 27, 2021
  */
+//file:noinspection unused
 
 static String getVersionNum() 		{ return "00.00.01" }
 static String getVersionLabel() 	{ return "Husqvarna AutoMower, version ${getVersionNum()}" }
@@ -71,12 +72,12 @@ metadata {
 		attribute 'holdUntilNext',	'STRING' // TRUE or FALSE
 		attribute 'holdIndefinite',	'STRING' // TRUE or FALSE
 
-		command "start",		 			['NUMBER'] // duration
-		command "pause", 					[]
-		command "parkuntilnext",			[] // until next schedule
-		command "parkindefinite", 			[] // park until further notice
-		command "park",						['NUMBER'] // duration in minutes
-		command "resumeSchedule", 			[]
+		command "start",		 		[[name: 'Duration*', type: 'NUMBER', description: 'Minutes']] // duration
+		command "pause", 				[]
+		command "parkuntilnext",		[] // until next schedule
+		command "parkindefinite", 		[] // park until further notice
+		command "park",					[[name: 'Duration*', type: 'NUMBER', description: 'Minutes']] // duration in minutes
+		command "resumeSchedule", 		[]
 	}
 
 	preferences {
@@ -223,7 +224,7 @@ def generateEvent(List<Map<String,Object>> updates) {
 							if (name.endsWith("TimeStamp") || name.endsWith("NextStart")) {
 								if(sendValue != sNULL && sendValue != 'null' && sendValue != "0"){
 									Long t = sendValue.toLong()
-                                    Long n = now()
+									Long n = now()
 									if (name.endsWith("NextStart")) {
 										t -= location.timeZone.getOffset(n) + Math.round(
 												(Integer)location.timeZone.getOffset(t)-(Integer)location.timeZone.getOffset(n)*1.0D )
@@ -254,11 +255,14 @@ def generateEvent(List<Map<String,Object>> updates) {
 // ***************************************************************************
 @SuppressWarnings('unused')
 void start(mins) {
-	LOG("start($mins)", 3,  sTRACE)
-	Map foo = [data:[type:'Start',attributes:[duration:mins]]]
-	if(parent.sendCmdToHusqvarna((String)state.id, foo)) {
-		LOG("start($mins)() sent",4, sTRACE)
+	if(mins) {
+		LOG("start($mins)", 3, sTRACE)
+		Map foo = [data:[type:'Start',attributes:[duration:mins]]]
+		if(parent.sendCmdToHusqvarna((String)state.id, foo)) {
+			LOG("start($mins) sent",4, sTRACE)
+		}
 	}
+	else LOG("start($mins) no minutes specified",1, sERROR)
 }
 
 @SuppressWarnings('unused')
@@ -266,7 +270,7 @@ void pause(){
 	LOG("pause",3, sTRACE)
 	Map foo = [data:[type:'Pause']]
 	if(parent.sendCmdToHusqvarna((String)state.id, foo)) {
-	   LOG("pause sent",4, sTRACE)
+		LOG("pause sent",4, sTRACE)
 	}
 }
 
@@ -290,11 +294,13 @@ void parkindefinite() {
 
 @SuppressWarnings('unused')
 void park(mins) {
-	LOG("park($mins)",3,sTRACE)
-	Map foo = [data:[type:'Park',attributes:[duration:mins]]]
-	if(parent.sendCmdToHusqvarna((String)state.id, foo)) {
-		LOG("park($mins)() sent",4, sTRACE)
-	}
+	if(mins) {
+		LOG("park($mins)",3,sTRACE)
+		Map foo = [data:[type:'Park',attributes:[duration:mins]]]
+		if(parent.sendCmdToHusqvarna((String)state.id, foo)) {
+			LOG("park($mins) sent",4, sTRACE)
+		}
+	} else LOG("start($mins) no minutes specified",1, sERROR)
 }
 
 void resumeSchedule() {
@@ -306,19 +312,19 @@ void resumeSchedule() {
 }
 
 void off() {
-	LOG('off()', 4,  sTRACE)
+	LOG('off()', 4, sTRACE)
 	parkindefinite()
 }
 
 void on() {
-	LOG('on()', 4,  sTRACE)
+	LOG('on()', 4, sTRACE)
 	resumeSchedule()
 }
 
 String formatDt(Date dt, Boolean tzChg=true) {
-        def tf=new SimpleDateFormat("E MMM dd HH:mm:ss z yyyy")
-        if(tzChg) { if(location.timeZone) { tf.setTimeZone(location?.timeZone) } }
-        return (String)tf.format(dt)
+	def tf=new SimpleDateFormat("E MMM dd HH:mm:ss z yyyy")
+	if(tzChg) { if(location.timeZone) { tf.setTimeZone(location?.timeZone) } }
+	return (String)tf.format(dt)
 }
 
 String getDeviceId() {
