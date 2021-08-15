@@ -8,7 +8,7 @@
  *	on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
  *	for the specific language governing permissions and limitations under the License.
  *
- *  Modified July 27, 2021
+ *  Modified August 15, 2021
  */
 //file:noinspection unused
 
@@ -86,7 +86,6 @@ metadata {
 }
 
 // parse events into attributes
-@SuppressWarnings('unused')
 def parse(String description) {
 	LOG("parse() --> Parsing ${description}", 4, sTRACE)
 }
@@ -103,19 +102,16 @@ void doRefresh() {
 	state.lastDoRefresh = now()	// reset the timer after the UI has been updated
 }
 
-@SuppressWarnings('unused')
 def forceRefresh() {
 	refresh(true)
 }
 
-@SuppressWarnings('unused')
 def installed() {
 	LOG("${device.label} being installed",2,sINFO)
 	if (device.label?.contains('TestingForInstall')) return	// we're just going to be deleted in a second...
 	updated()
 }
 
-@SuppressWarnings('unused')
 def uninstalled() {
 	LOG("${device.label} being uninstalled",2,sINFO)
 }
@@ -130,7 +126,6 @@ def updated() {
 	runIn(2, 'forceRefresh', [overwrite: true])
 }
 
-@SuppressWarnings('unused')
 def poll() {
 	LOG("Executing 'poll' using parent App", 2, sINFO)
 	parent.pollFromChild(getDeviceId(), false) // tell parent to just poll me silently -- can't pass child/this for some reason
@@ -253,7 +248,6 @@ def generateEvent(List<Map<String,Object>> updates) {
 // commands
 // API calls and UI handling
 // ***************************************************************************
-@SuppressWarnings('unused')
 void start(mins) {
 	if(mins) {
 		LOG("start($mins)", 3, sTRACE)
@@ -265,7 +259,6 @@ void start(mins) {
 	else LOG("start($mins) no minutes specified",1, sERROR)
 }
 
-@SuppressWarnings('unused')
 void pause(){
 	LOG("pause",3, sTRACE)
 	Map foo = [data:[type:'Pause']]
@@ -274,7 +267,6 @@ void pause(){
 	}
 }
 
-@SuppressWarnings('unused')
 void parkuntilnext() {
 	LOG("parkuntilnext()", 3, sTRACE)
 	Map foo = [data:[type:'ParkUntilNextSchedule']]
@@ -292,7 +284,6 @@ void parkindefinite() {
 	}
 }
 
-@SuppressWarnings('unused')
 void park(mins) {
 	if(mins) {
 		LOG("park($mins)",3,sTRACE)
@@ -321,14 +312,19 @@ void on() {
 	resumeSchedule()
 }
 
+String getDtNow() {
+	Date now=new Date()
+	return formatDt(now)
+}
+
 String formatDt(Date dt, Boolean tzChg=true) {
-	def tf=new SimpleDateFormat("E MMM dd HH:mm:ss z yyyy")
-	if(tzChg) { if(location.timeZone) { tf.setTimeZone(location?.timeZone) } }
+	SimpleDateFormat tf=new SimpleDateFormat("E MMM dd HH:mm:ss z yyyy")
+	if(tzChg) { if(location.timeZone) { tf.setTimeZone((TimeZone)location?.timeZone) } }
 	return (String)tf.format(dt)
 }
 
 String getDeviceId() {
-	def deviceId = ((String)device.deviceNetworkId).split(/\./).last()
+	String deviceId = ((String)device.deviceNetworkId).split(/\./).last()
 	LOG("getDeviceId() returning ${deviceId}", 4)
 	return deviceId
 }
@@ -343,12 +339,12 @@ Boolean debugLevel(Integer level=3){
 	return (getIDebugLevel() >= level)
 }
 
-void LOG(message, Integer level=3, String logType=sDEBUG, ex=null, Boolean event=false, Boolean displayEvent=false) {
+void LOG(message, Integer level=3, String logType=sDEBUG, Exception ex=null, Boolean event=false, Boolean displayEvent=false) {
 	if(logType == sNULL) logType = sDEBUG
 	String prefix = sBLANK
 
 	if(logType == sERROR){
-		String a = getTimestamp()
+		String a = getDtNow() // getTimestamp()
 		state.lastLOGerror = "${message} @ "+a
 		state.LastLOGerrorDate = a
 	} else {
@@ -366,18 +362,13 @@ void LOG(message, Integer level=3, String logType=sDEBUG, ex=null, Boolean event
 	if (event) { debugEvent(message+" (${logType})", displayEvent) }
 }
 
-@SuppressWarnings('unused')
-private void logdebug(String msg, ex=null){ log.debug logPrefix(msg, "purple") }
-@SuppressWarnings('unused')
-private void loginfo(String msg, ex=null){ log.info sSPACE + logPrefix(msg, "#0299b1") }
-@SuppressWarnings('unused')
-private void logtrace(String msg, ex=null){ log.trace logPrefix(msg, sCLRGRY) }
-@SuppressWarnings('unused')
-private void logwarn(String msg, ex=null){ logexception(msg,ex,sWARN, sCLRORG) }
-@SuppressWarnings('unused')
-void logerror(String msg, ex=null){ logexception(msg,ex,sERROR, sCLRRED) }
+private void logdebug(String msg, Exception ex=null){ log.debug logPrefix(msg, "purple") }
+private void loginfo(String msg, Exception ex=null){ log.info sSPACE + logPrefix(msg, "#0299b1") }
+private void logtrace(String msg, Exception ex=null){ log.trace logPrefix(msg, sCLRGRY) }
+private void logwarn(String msg, Exception ex=null){ logexception(msg,ex,sWARN, sCLRORG) }
+void logerror(String msg, Exception ex=null){ logexception(msg,ex,sERROR, sCLRRED) }
 
-void logexception(String msg, ex=null, String typ, String clr) {
+void logexception(String msg, Exception ex=null, String typ, String clr) {
 	String msg1 = ex ? " Exception: ${ex}" : sBLANK
 	log."$typ" logPrefix(msg+msg1, clr)
 	String a
@@ -399,7 +390,7 @@ void debugEvent(message, Boolean displayEvent = false) {
 		isStateChange: true
 	]
 	if ( debugLevel(4) ) { log.debug "Generating AppDebug Event: ${results}" }
-	sendEvent (results)
+	sendEvent(results)
 }
 
 def getParentSetting(String settingName) {
