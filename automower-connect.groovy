@@ -10,7 +10,7 @@
  *
  *	Husqvarna AutoMower
  *
- *  Modified August 15, 2021
+ *  Modified September 30, 2021
  *
  *  Instructions:
  *	Go to developer.husqvarnagroup.cloud
@@ -28,6 +28,7 @@
 //file:noinspection GroovyUnusedAssignment
 //file:noinspection GroovySillyAssignment
 //file:noinspection unused
+//file:noinspection GroovyVariableNotAssigned
 
 import groovy.json.*
 import groovy.transform.Field
@@ -572,6 +573,7 @@ def callback(){
 	LOG("callback()>> params: ${params}" /* params.code ${params.code}, params.state ${params.state}, state.oauthInitState ${state.oauthInitState}"*/, 4, sDEBUG)
 	def code=params.code
 	String oauthState=params.state
+	String eMsg = sNULL
 
 	if(oauthState == state.oauthInitState){
 		LOG("callback() --> States matched!", 4)
@@ -607,43 +609,49 @@ def callback(){
 
 					state.refreshToken=ndata.refresh_token
 					state.authToken=ndata.access_token
-					state.authTokenExpires=Math.round((Long)now() + ((Integer)ndata.expires_in * 1000))
+					Long tt= (Long)now() + (ndata.expires_in * 1000)
+					//log.error "tt is ${tt}"
+					state.authTokenExpires=tt
+					atomicState.refreshToken=ndata.refresh_token
+					atomicState.authToken=ndata.access_token
+					//atomicState.authTokenExpires=tt
+					//log.error "state.authTokenExpires is ${state.authTokenExpires}"
 
 					LOG("Expires in ${ndata.expires_in} seconds", 3)
 					LOG("swapped token: $ndata; state.refreshToken: ${state.refreshToken}; state.authToken: ${(String)state.authToken}", 3)
 					state.remove('oauthInitState')
-                    success()
-				} else { fail() }
+                    eMsg = success()
+				} else { eMsg = fail() }
 			}
 		} catch(Exception e){
 			LOG("auth callback()", 1, sERROR, e)
 			//if(resp) parseAuthResponse(resp)
-			fail()
+			eMsg = fail()
 		}
 	}else{
 		LOG("callback() failed oauthState != state.oauthInitState", 1, sWARN)
-        fail()
+        eMsg = fail()
 	}
-    /* no code here */
+	render contentType: 'text/html', data: eMsg
 }
 
-def success(){
+String success(){
 	String message="""
 	<p>Your AutoConnect Account is now connected!</p>
 	<p>Close this window and click 'Done' to finish setup.</p>
 	"""
-	connectionStatus(message)
+	return connectionStatus(message)
 }
 
-def fail(){
+String fail(){
 	String message="""
 		<p>The connection could not be established!</p>
 		<p>Close this window and click 'Done' to return to the menu.</p>
 	"""
-	connectionStatus(message)
+	return connectionStatus(message)
 }
 
-def connectionStatus(String message, Boolean close=true){
+String connectionStatus(String message, Boolean close=false){
 	String redirectHtml = close ? """<script>document.getElementsByTagName('html')[0].style.cursor = 'wait';setTimeout(function(){window.close()},2500);</script>""" : sBLANK
 	/*String redirectHtml=sBLANK
 	if(redirectUrl){
@@ -713,7 +721,7 @@ def connectionStatus(String message, Boolean close=true){
 </body>
 </html>
 """.toString()
-	render contentType: 'text/html', data: html
+	return html
 }
 /* """ */
 
@@ -1056,7 +1064,7 @@ void initialize(){
 	state.skipTime=now()
 
 	if((String)state.authToken && (Boolean)state.initialized) {
-		Long timeBeforeExpiry=(Long)state.authTokenExpires ? (Long)state.authTokenExpires - now() : 0
+		Long timeBeforeExpiry= state.authTokenExpires ? (Long)state.authTokenExpires - now() : 0
 		if(timeBeforeExpiry > 0) {
 			//state.connected=sFULL
 			apiRestored(false)
@@ -1204,9 +1212,10 @@ void scheduledWatchdog(evt=null, Boolean local=false, String meth="schedule/runi
 	}
 
 	// check if token needs to be refreshed
-	Long timeBeforeExpiry=(Long)state.authTokenExpires ? (Long)state.authTokenExpires - now() : 0
-	if(timeBeforeExpiry < 1800000){
-		msg += "Calling refreshToken"
+	Long texp = (Long)state.authTokenExpires
+	Long timeBeforeExpiry=texp ? texp - now() : 0L
+	if(timeBeforeExpiry < 1800000L){
+		msg += "Calling refreshToken | timeBeforeExpiry: ${timeBeforeExpiry} | "
 		if(debugLevelFour) { LOG(msgH+msg, 4, sTRACE); msg=sBLANK }
 		if( !refreshAuthToken('scheduledWatchdog') ){
 			return
@@ -1574,9 +1583,11 @@ Boolean refreshAuthToken(String meth, child=null){
 	Boolean debugLevelFour=debugLevel(4)
 //	if(debugLevelFour) LOG('Entered refreshAuthToken()', 4, sTRACE)
 
-	Long timeBeforeExpiry=(Long)state.authTokenExpires && state.authToken ? (Long)state.authTokenExpires - now() : 0L
+	Long texp = (Long)state.authTokenExpires
+	String aT = atomicState.authToken
+	Long timeBeforeExpiry= texp && aT ? texp - now() : 0L
 	Boolean tokenStillGood=(timeBeforeExpiry > 2000L)
-	msg += "Token is ${tokenStillGood ? "valid" : "invalid"} | "
+	msg += "Token is ${tokenStillGood ? "valid" : "invalid"} | texp: ${texp} | timeBeforeExpiry: ${timeBeforeExpiry} | authToken: ${aT} | "
 
 	// check to see if token was recently refreshed
 	Integer pollingIntrvMin=getPollingInterval()+2
@@ -1589,15 +1600,15 @@ Boolean refreshAuthToken(String meth, child=null){
 	}
 
 	msg += "Want to refresh token | "
-	if(!state.refreshToken || timeBeforeExpiry < 30L) {
-		if(msg) { LOG(msgH + msg, 2, sTRACE); msg=sBLANK }
-		apiLost(msgH+"No refresh Token or expired refresh token ${timeBeforeExpiry} ${state.authTokenExpires}")
+	def rt = atomicState.refreshToken
+	if(!rt || timeBeforeExpiry < 30L) {
 		state.authToken=sNULL
 		tokenStillGood=false
-		apiLost(msgH+"No refreshToken")
+		if(msg) { LOG(msgH + msg, 2, sTRACE); msg=sBLANK }
+		apiLost(msgH+"No refresh Token (${rt}) or expired refresh token ${timeBeforeExpiry} ${texp} | CLEARED authToken due to no refreshToken or expired authToken")
 	}else{
 		msg +='Performing token refresh'
-		Map rdata=[grant_type: 'refresh_token', client_id: getHusqvarnaApiKey(), refresh_token: "${state.refreshToken}"]
+		Map rdata=[grant_type: 'refresh_token', client_id: getHusqvarnaApiKey(), refresh_token: "${rt}"]
 		String data=rdata.collect{ String k,v -> encodeURIComponent(k)+'='+encodeURIComponent(v) }.join('&')
 		Map refreshParams=[
 			uri: getApiEndpoint()+"/token",
@@ -1609,11 +1620,11 @@ Boolean refreshAuthToken(String meth, child=null){
 
 		if(debugLevelFour){
 			msg +="refreshParams=${refreshParams} "
-			msg += "OAUTH Token=state: ${(String)state.authToken} "
-			msg += "Refresh Token=state: ${state.refreshToken}  "
+			msg += "OAUTH Token=state: ${aT} "
+			msg += "Refresh Token=state: ${rt}  "
 		}
 
-		msg += "state.authTokenExpires=${state.authTokenExpires}  ${formatDt(new Date((Long)state.authTokenExpires))} "
+		msg += "state.authTokenExpires=${texp}  ${formatDt(new Date(texp))} "
 		if(msg) {
 			LOG(msgH + msg, 2, sTRACE) // 4
 			msg=sBLANK
@@ -1630,7 +1641,7 @@ Boolean refreshAuthToken(String meth, child=null){
 					Map ndata=(Map)new JsonSlurper().parseText(kk)
 //					log.debug "ndata : ${ndata}"
 
-					String oldAuthToken=(String)state.authToken
+					String oldAuthToken=aT
 					if(oldAuthToken == ndata.access_token){
 						LOG(msgH+'WARN: state.authToken did NOT update properly! This is likely a transient problem', 1, sWARN, null, child)
 						return tokenStillGood
@@ -1641,16 +1652,19 @@ Boolean refreshAuthToken(String meth, child=null){
 					state.lastTokenRefresh=now()
 					state.lastTokenRefreshDate=getTimestamp()
 
-					Long tt=now() + (ndata.expires_in * 1000)
+					Long tt=(Long)now() + (ndata.expires_in * 1000)
 					if(debugLevelFour){ // 4
 						msg += "Updated state.authTokenExpires=${tt} "
-						msg += "Refresh Token=state: ${state.refreshToken} == in: ${ndata.refresh_token} "
-						msg += "OAUTH Token=state: ${(String)state.authToken} == in: ${ndata.access_token}"
+						msg += "Refresh Token=state: ${rt} == in: ${ndata.refresh_token} "
+						msg += "OAUTH Token=state: ${aT} == in: ${ndata.access_token}"
 						LOG(msgH+msg, 4, sTRACE, null, child)
 					}
 					state.authTokenExpires=tt
 					state.refreshToken=ndata.refresh_token
 					state.authToken=ndata.access_token
+					//atomicState.authTokenExpires=tt
+					atomicState.refreshToken=ndata.refresh_token
+					atomicState.authToken=ndata.access_token
 					tokenStillGood=true
 
 					LOG("refreshAuthToken() - Success! Token expires in ${String.format("%.2f",ndata.expires_in/60)} minutes", 3, sINFO, null, child) // 3
@@ -1680,7 +1694,7 @@ Boolean refreshAuthToken(String meth, child=null){
 			if(attempts > maxAttempt || timeBeforeExpiry < 1L){
 				state.authToken=sNULL
 				tokenStillGood=false
-				apiLost(msgH+"Too many retries (${state.reAttempt - 1}) for token refresh, or expired token ${timeBeforeExpiry} ${state.authTokenExpires}")
+				apiLost(msgH+"CLEARING AUTH TOKEN - Too many retries (${state.reAttempt - 1}) for token refresh, or expired auth token ${timeBeforeExpiry} ${state.authTokenExpires}")
 			}else{
 				LOG(msgH+"Setting up runIn for refreshAuthToken", 2, sTRACE, null, child) // 4
 				Integer retryFactor = attempts > 12 ? 12 : attempts
