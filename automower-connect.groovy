@@ -814,7 +814,6 @@ Map<String,String> getAutoMowers(Boolean frc=false, String meth="followup", Bool
 					if(rdata) adata=(Map)new JsonSlurper().parseText(rdata)
 				}
 				if(resp && resp.isSuccess() && resp.status == 200 && adata) {
-                    log.debug "response data: ${adata}"
 					List<Map> ndata=((List<Map>)adata.data)?.findAll { it.type == "mower" }
 
 					state.numAvailMowers=((List<Map>)ndata)?.size() ?: 0
@@ -1648,7 +1647,6 @@ Boolean pollChildren(String deviceId=sBLANK,Boolean force=false){
 			List<Map> flist=[]
 			Map srcMap=getMowerMap(mower)
 			if(srcMap) {
-                log.debug "srcMap = ${srcMap}"
 				Boolean moving=(String)srcMap.attributes.mower.activity in [ 'MOWING', 'GOING_HOME', 'LEAVING' ]
 				Boolean onMain=(String)srcMap.attributes.mower.activity in [ 'CHARGING', 'PARKED_IN_CS' ]
 				Boolean stuck=( (String)srcMap.attributes.mower.activity in [ 'STOPPED_IN_GARDEN' ] ||
