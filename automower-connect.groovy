@@ -10,7 +10,7 @@
  *
  *	Husqvarna AutoMower
  *
- *  Modified September 30, 2021
+ *  Modified June 16, 2022
  *
  *  Instructions:
  *	Go to developer.husqvarnagroup.cloud
@@ -34,7 +34,7 @@ import groovy.json.*
 import groovy.transform.Field
 import java.text.SimpleDateFormat
 
-static String getVersionNum()		{ return "00.00.01" }
+static String getVersionNum()		{ return "00.00.02" }
 static String getVersionLabel()		{ return "Husqvarna Automower Manager, version "+getVersionNum() }
 static String getMyNamespace()		{ return "imnotbob" }
 static Integer getMinMinsBtwPolls()	{ return 3 }
@@ -621,7 +621,7 @@ def callback(){
 					LOG("Expires in ${ndata.expires_in} seconds", 3)
 					LOG("swapped token: $ndata; state.refreshToken: ${state.refreshToken}; state.authToken: ${(String)state.authToken}", 3)
 					state.remove('oauthInitState')
-                    eMsg = success()
+					eMsg = success()
 				} else { eMsg = fail() }
 			}
 		} catch(Exception e){
@@ -631,7 +631,7 @@ def callback(){
 		}
 	}else{
 		LOG("callback() failed oauthState != state.oauthInitState", 1, sWARN)
-        eMsg = fail()
+		eMsg = fail()
 	}
 	render contentType: 'text/html', data: eMsg
 }
@@ -866,16 +866,16 @@ Map<String,String> getAutoMowers(Boolean frc=false, String meth="followup", Bool
  * max 1 command per second
  * Commands are queued at Husqvarna, and executed when mower checks in
  */
-Boolean sendCmdToHusqvarna(String mowerId, Map data, Boolean isRetry=false) {
-	String msgH = "sendCmdToHusqvarna(mower: $mowerId, data: $data, isRetry: $isRetry) | "
+Boolean sendCmdToHusqvarna(String mowerId, Map data, Boolean isRetry=false, String uriend='actions') {
+	String msgH = "sendCmdToHusqvarna(mower: $mowerId, data: $data, isRetry: $isRetry uriend: $uriend) | "
 
-	Boolean ok = (mowerId && mowerId in (List<String>) settings.mowers)
+	Boolean ok = (mowerId && mowerId in (List<String>)settings.mowers)
 	if (!ok) {
 		LOG(msgH + "mower not enabled in settings: $settings.mowers", 1, sERROR)
 		return false
 	}
 
-	if (debugLevel(4))  LOG(msgH + "===> entered", 4, sTRACE)
+	if (debugLevel(4)) LOG(msgH + "===> entered", 4, sTRACE)
 	else LOG(msgH, 3,sTRACE)
 
 	if(weAreLost(msgH, 'sendCmdToHusqvarna')){
@@ -883,7 +883,7 @@ Boolean sendCmdToHusqvarna(String mowerId, Map data, Boolean isRetry=false) {
 	}
 
 	Map deviceListParams=[
-		uri: getMowerApiEndpoint() +"/mowers"+"/${mowerId}/actions",
+		uri: getMowerApiEndpoint() +"/mowers"+"/${mowerId}/${uriend}",
 		headers: [
 			"Content-Type": "application/vnd.api+json",
 			"Authorization": "Bearer ${(String)state.authToken}",
@@ -894,7 +894,8 @@ Boolean sendCmdToHusqvarna(String mowerId, Map data, Boolean isRetry=false) {
 		body: new JsonOutput().toJson(data),
 		timeout: 30
 	]
-	String msg = sBLANK
+	String msg
+	msg = sBLANK
 	if(debugLevel(4)) {
 		msg+="http params -- ${deviceListParams} "
 	}
@@ -924,7 +925,7 @@ Boolean sendCmdToHusqvarna(String mowerId, Map data, Boolean isRetry=false) {
 					//state.action="getAutoMowers"
 					if(!isRetry){
 						LOG(msgH + "Refreshing auth_token!", 3, sTRACE)
-						if(refreshAuthToken('sendCmdToHusqvarna')) return sendCmdToHusqvarna(mowerId, data, true)
+						if(refreshAuthToken('sendCmdToHusqvarna')) return sendCmdToHusqvarna(mowerId, data, true,uriend)
 					}
 				}else{
 					LOG(msgH + "Other error. Status: ${resp.status} Response data: ${rdata} ", 1, sERROR)
@@ -941,6 +942,14 @@ Boolean sendCmdToHusqvarna(String mowerId, Map data, Boolean isRetry=false) {
 		return false
 	}
 	return true
+}
+
+Boolean sendSettingToHusqvarna(String mowerId, Map data, Boolean isRetry=false) {
+	return sendCmdToHusqvarna(mowerId, data, isRetry,'settings')
+}
+
+Boolean sendScheduleToHusqvarna(String mowerId, Map data, Boolean isRetry=false) {
+	return sendCmdToHusqvarna(mowerId, data, isRetry,'calendar')
 }
 
 Map getMowerMap(String tid) {
@@ -1525,6 +1534,9 @@ Boolean pollChildren(String deviceId=sBLANK,Boolean force=false){
 				flist << ['hold': hold]
 				flist << ['holdUntilNext': holdUntilNext]
 				flist << ['holdIndefinite': holdIndefinite]
+
+				flist << ['cuttingHeight': srcMap.attributes.settings.cuttingHeight] // Level
+				flist << ['headlight': srcMap.attributes.settings.headlight.mode]
 
 				flist << [apiConnected: apiConnection]
 				flist << [lastPoll: slastPoll]

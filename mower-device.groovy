@@ -8,11 +8,11 @@
  *	on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
  *	for the specific language governing permissions and limitations under the License.
  *
- *  Modified August 15, 2021
+ *  Modified June 16, 2022
  */
 //file:noinspection unused
 
-static String getVersionNum() 		{ return "00.00.01" }
+static String getVersionNum()		{ return "00.00.02" }
 static String getVersionLabel() 	{ return "Husqvarna AutoMower, version ${getVersionNum()}" }
 
 import groovy.transform.Field
@@ -59,6 +59,9 @@ metadata {
 		attribute 'model', 'STRING'
 		attribute 'serialNumber', 'STRING'
 
+		attribute 'cuttingHeight',	'NUMBER' // (level)
+		attribute 'headlight',	'STRING' // ALWAYS_ON, ALWAYS_OFF, EVENING_ONLY, EVENING_AND_NIGHT
+
 		attribute 'apiConnected',		'STRING'
 		attribute 'debugEventFromParent',	'STRING'		// Read only
 		attribute 'debugLevel', 		'NUMBER'		// Read only - changed in preferences
@@ -78,6 +81,9 @@ metadata {
 		command "parkindefinite", 		[] // park until further notice
 		command "park",					[[name: 'Duration*', type: 'NUMBER', description: 'Minutes']] // duration in minutes
 		command "resumeSchedule", 		[]
+		command "setCuttingHeight",		[[name: 'Height*', type: 'NUMBER', description: 'Level']]
+		command "setHeadlightMode",		[[name: 'Mode*', type: 'ENUM', description: 'Mode', constraints: ["ALWAYS_ON", "ALWAYS_OFF", "EVENING_ONLY", "EVENING_AND_NIGHT"]]] // mode
+		command "setSchedule",			[[name: 'taskList*', type: 'STRING', description: 'Task List']]
 	}
 
 	preferences {
@@ -137,8 +143,8 @@ def generateEvent(Map updates) {
 }
 
 def generateEvent(List<Map<String,Object>> updates) {
-	//log.debug "updates: ${updates}"
-	//if (!state.version || (state.version != getVersionLabel())) updated()
+	//log.debug "updates: $updates}"
+
 	String myVersion = getDataValue("myVersion")
 	if (!myVersion || (myVersion != getVersionLabel())) updated()
 	String msgH="generateEvent() | "
@@ -152,7 +158,7 @@ def generateEvent(List<Map<String,Object>> updates) {
 	Integer objectsUpdated = 0
 
 	if(updates) {
-		updates.each { update ->
+		updates.each { Map<String,Object> update ->
 			update.each { String name, value ->
 				String sendValue = value.toString()
 				Boolean isChange = isStateChange(device, name, sendValue)
@@ -302,6 +308,39 @@ void resumeSchedule() {
 	}
 }
 
+void setCuttingHeight(level) {
+	if(level) {
+		LOG("setCuttingHeight($level)", 3, sTRACE)
+		Map foo = [data:[type:'settings',attributes:[cuttingHeight:level]]]
+		if(parent.sendSettingToHusqvarna((String)state.id, foo)) {
+			LOG("setCuttingHeight($level) sent",4, sTRACE)
+		}
+	}
+	else LOG("setCuttingHeight($level) no level specified",1, sERROR)
+}
+
+void setHeadlightMode(mode) {
+	if(mode) {
+		LOG("setHeadlight($mode)", 3, sTRACE)
+		Map foo = [data:[type:'settings',attributes:[headlight:[mode:mode]]]]
+		if(parent.sendSettingToHusqvarna((String)state.id, foo)) {
+			LOG("setHeadlight($mode) sent",4, sTRACE)
+		}
+	}
+	else LOG("setHeadlight($mode) no mode specified",1, sERROR)
+}
+
+void setSchedule(taskList) {
+	if(taskList != null) {
+		LOG("setSchedule($taskList)", 3, sTRACE)
+		Map foo = [data:[type:'calendar', attributes:[tasks:taskList]]]
+		if(parent.sendScheduleToHusqvarna((String)state.id, foo)) {
+			LOG("setSchedule($taskList)",4, sTRACE)
+		}
+	}
+	else LOG("setSchedule missing input parameter(s)",1, sERROR)
+}
+
 void off() {
 	LOG('off()', 4, sTRACE)
 	parkindefinite()
@@ -319,7 +358,7 @@ String getDtNow() {
 
 String formatDt(Date dt, Boolean tzChg=true) {
 	SimpleDateFormat tf=new SimpleDateFormat("E MMM dd HH:mm:ss z yyyy")
-	if(tzChg) { if(location.timeZone) { tf.setTimeZone((TimeZone)location?.timeZone) } }
+	if(tzChg) { if(location.timeZone) { tf.setTimeZone((TimeZone)location.timeZone) } }
 	return (String)tf.format(dt)
 }
 
@@ -339,16 +378,19 @@ Boolean debugLevel(Integer level=3){
 	return (getIDebugLevel() >= level)
 }
 
-void LOG(message, Integer level=3, String logType=sDEBUG, Exception ex=null, Boolean event=false, Boolean displayEvent=false) {
-	if(logType == sNULL) logType = sDEBUG
-	String prefix = sBLANK
+void LOG(message, Integer level=3, String ilogType=sDEBUG, Exception ex=null, Boolean event=false, Boolean displayEvent=false) {
+	String logType,prefix
 
+	logType=ilogType
+	if(logType == sNULL) logType = sDEBUG
+	prefix = sBLANK
+
+	Integer dbgLevel = getIDebugLevel()
 	if(logType == sERROR){
 		String a = getDtNow() // getTimestamp()
 		state.lastLOGerror = "${message} @ "+a
 		state.LastLOGerrorDate = a
 	} else {
-		Integer dbgLevel = getIDebugLevel()
 		if (level > dbgLevel) return	// let's not waste CPU cycles if we don't have to...
 	}
 
@@ -404,3 +446,4 @@ def getParentSetting(String settingName) {
 @Field static final String sINFO		= 'info'
 @Field static final String sTRACE		= 'trace'
 @Field static final String sWARN		= 'warn'
+
