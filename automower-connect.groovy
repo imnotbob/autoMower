@@ -10,7 +10,7 @@
  *
  *	Husqvarna AutoMower
  *
- *  Modified September 30, 2021
+ *  Modified June 16, 2022
  *
  *  Instructions:
  *	Go to developer.husqvarnagroup.cloud
@@ -34,7 +34,7 @@ import groovy.json.*
 import groovy.transform.Field
 import java.text.SimpleDateFormat
 
-static String getVersionNum()		{ return "00.00.01" }
+static String getVersionNum()		{ return "00.00.02" }
 static String getVersionLabel()		{ return "Husqvarna Automower Manager, version "+getVersionNum() }
 static String getMyNamespace()		{ return "imnotbob" }
 static Integer getMinMinsBtwPolls()	{ return 3 }
@@ -814,7 +814,7 @@ Map<String,String> getAutoMowers(Boolean frc=false, String meth="followup", Bool
 					if(rdata) adata=(Map)new JsonSlurper().parseText(rdata)
 				}
 				if(resp && resp.isSuccess() && resp.status == 200 && adata) {
-
+                    log.debug "response data: ${adata}"
 					List<Map> ndata=((List<Map>)adata.data)?.findAll { it.type == "mower" }
 
 					state.numAvailMowers=((List<Map>)ndata)?.size() ?: 0
@@ -936,6 +936,163 @@ Boolean sendCmdToHusqvarna(String mowerId, Map data, Boolean isRetry=false) {
 		//state.action="getAutoMowers"
 		if(!isRetry) {
 			Boolean a = refreshAuthToken('sendCmdToHusqvarna')
+		}
+		return false
+	}
+	return true
+}
+
+/*
+ * max 1 setting update per second
+ */
+Boolean sendSettingToHusqvarna(String mowerId, Map data, Boolean isRetry=false) {
+	String msgH = "sendSettingToHusqvarna(mower: $mowerId, data: $data, isRetry: $isRetry) | "
+
+	Boolean ok = (mowerId && mowerId in (List<String>) settings.mowers)
+	if (!ok) {
+		LOG(msgH + "mower not enabled in settings: $settings.mowers", 1, sERROR)
+		return false
+	}
+
+	if (debugLevel(4))  LOG(msgH + "===> entered", 4, sTRACE)
+	else LOG(msgH, 3,sTRACE)
+
+	if(weAreLost(msgH, 'sendSettingToHusqvarna')){
+		return false
+	}
+
+	Map deviceListParams=[
+		uri: getMowerApiEndpoint() +"/mowers"+"/${mowerId}/settings",
+		headers: [
+			"Content-Type": "application/vnd.api+json",
+			"Authorization": "Bearer ${(String)state.authToken}",
+			"Authorization-Provider": "husqvarna",
+			"X-Api-Key":getHusqvarnaApiKey()
+		],
+		query: null,
+		body: new JsonOutput().toJson(data),
+		timeout: 30
+	]
+	String msg = sBLANK
+	if(debugLevel(4)) {
+		msg+="http params -- ${deviceListParams} "
+	}
+	msg +="HTTPPOST "
+	if(msg) {
+		LOG(msgH + msg, 2, sTRACE)
+		msg=sBLANK
+	}
+
+	try {
+		httpPost(deviceListParams) { resp ->
+			String rdata
+			/*
+			Map adata
+			if(resp) {
+				rdata=resp.data.text // need to save first time since it is a ByteArrayInputStream
+				if(rdata) adata=(Map)new JsonSlurper().parseText(rdata)
+			}*/
+			if(resp && resp.isSuccess() && resp.status >= 200 && resp.status <= 299) {
+				LOG(msgH + "httpPost() ${resp.status} Response", 2, sTRACE)
+				runIn(85, poll, [overwrite: true]) // give time for setting update to complete; then get new status
+			}else{
+				LOG(msgH + "httpPost() in else: http status: ${resp.status}", 1, sTRACE)
+				//refresh the auth token
+				if(resp.status == 500) { //} && resp.data?.status?.code == 14) {
+					//LOG(msgH + "Storing the failed action to try later", 1, sTRACE)
+					//state.action="getAutoMowers"
+					if(!isRetry){
+						LOG(msgH + "Refreshing auth_token!", 3, sTRACE)
+						if(refreshAuthToken('sendSettingToHusqvarna')) return sendSettingToHusqvarna(mowerId, data, true)
+					}
+				}else{
+					LOG(msgH + "Other error. Status: ${resp.status} Response data: ${rdata} ", 1, sERROR)
+				}
+				return false
+			}
+		}
+	} catch(Exception e) {
+		LOG(msgH + "___exception", 1, sERROR, e)
+		//state.action="getAutoMowers"
+		if(!isRetry) {
+			Boolean a = refreshAuthToken('sendSettingToHusqvarna')
+		}
+		return false
+	}
+	return true
+}
+
+Boolean sendScheduleToHusqvarna(String mowerId, Map data, Boolean isRetry=false) {
+	String msgH = "sendScheduleToHusqvarna(mower: $mowerId, data: $data, isRetry: $isRetry) | "
+
+	Boolean ok = (mowerId && mowerId in (List<String>) settings.mowers)
+	if (!ok) {
+		LOG(msgH + "mower not enabled in settings: $settings.mowers", 1, sERROR)
+		return false
+	}
+
+	if (debugLevel(4))  LOG(msgH + "===> entered", 4, sTRACE)
+	else LOG(msgH, 3,sTRACE)
+
+	if(weAreLost(msgH, 'sendScheduleToHusqvarna')){
+		return false
+	}
+
+	Map deviceListParams=[
+		uri: getMowerApiEndpoint() +"/mowers"+"/${mowerId}/calendar",
+		headers: [
+			"Content-Type": "application/vnd.api+json",
+			"Authorization": "Bearer ${(String)state.authToken}",
+			"Authorization-Provider": "husqvarna",
+			"X-Api-Key":getHusqvarnaApiKey()
+		],
+		query: null,
+		body: new JsonOutput().toJson(data),
+		timeout: 30
+	]
+	String msg = sBLANK
+	if(debugLevel(4)) {
+		msg+="http params -- ${deviceListParams} "
+	}
+	msg +="HTTPPOST "
+	if(msg) {
+		LOG(msgH + msg, 2, sTRACE)
+		msg=sBLANK
+	}
+
+	try {
+		httpPost(deviceListParams) { resp ->
+			String rdata
+			/*
+			Map adata
+			if(resp) {
+				rdata=resp.data.text // need to save first time since it is a ByteArrayInputStream
+				if(rdata) adata=(Map)new JsonSlurper().parseText(rdata)
+			}*/
+			if(resp && resp.isSuccess() && resp.status >= 200 && resp.status <= 299) {
+				LOG(msgH + "httpPost() ${resp.status} Response", 2, sTRACE)
+				runIn(85, poll, [overwrite: true]) // give time for setting update to complete; then get new status
+			}else{
+				LOG(msgH + "httpPost() in else: http status: ${resp.status}", 1, sTRACE)
+				//refresh the auth token
+				if(resp.status == 500) { //} && resp.data?.status?.code == 14) {
+					//LOG(msgH + "Storing the failed action to try later", 1, sTRACE)
+					//state.action="getAutoMowers"
+					if(!isRetry){
+						LOG(msgH + "Refreshing auth_token!", 3, sTRACE)
+						if(refreshAuthToken('sendScheduleToHusqvarna')) return sendScheduleToHusqvarna(mowerId, data, true)
+					}
+				}else{
+					LOG(msgH + "Other error. Status: ${resp.status} Response data: ${rdata} ", 1, sERROR)
+				}
+				return false
+			}
+		}
+	} catch(Exception e) {
+		LOG(msgH + "___exception", 1, sERROR, e)
+		//state.action="getAutoMowers"
+		if(!isRetry) {
+			Boolean a = refreshAuthToken('sendScheduleToHusqvarna')
 		}
 		return false
 	}
@@ -1491,6 +1648,7 @@ Boolean pollChildren(String deviceId=sBLANK,Boolean force=false){
 			List<Map> flist=[]
 			Map srcMap=getMowerMap(mower)
 			if(srcMap) {
+                log.debug "srcMap = ${srcMap}"
 				Boolean moving=(String)srcMap.attributes.mower.activity in [ 'MOWING', 'GOING_HOME', 'LEAVING' ]
 				Boolean onMain=(String)srcMap.attributes.mower.activity in [ 'CHARGING', 'PARKED_IN_CS' ]
 				Boolean stuck=( (String)srcMap.attributes.mower.activity in [ 'STOPPED_IN_GARDEN' ] ||
@@ -1524,6 +1682,9 @@ Boolean pollChildren(String deviceId=sBLANK,Boolean force=false){
 				flist << ['hold': hold]
 				flist << ['holdUntilNext': holdUntilNext]
 				flist << ['holdIndefinite': holdIndefinite]
+                
+                flist << ['cuttingHeight': srcMap.attributes.settings.cuttingHeight] // Level
+                flist << ['headlight': srcMap.attributes.settings.headlight.mode]
 
 				flist << [apiConnected: apiConnection]
 				flist << [lastPoll: slastPoll]
