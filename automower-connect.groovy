@@ -87,7 +87,7 @@ mappings {
 def mainPage(){
 	String version=getVersionLabel()
 	Boolean deviceHandlersInstalled
-	Boolean readyToInstall=false
+	Boolean readyToInstall //=false
 
 	deviceHandlersInstalled=testForDeviceHandlers()
 	readyToInstall=deviceHandlersInstalled
@@ -287,7 +287,7 @@ def authPage(){
 
 def oauthSection(){
 	section(sectionTitle("Husqvarna Oauth credentials")){
-		paragraph "Enter Oauth you create from Husqvarna Development portal"
+		paragraph "Enter Oauth you created from Husqvarna Development portal"
 		input(name: "apiKey", title:inputTitle("Enter Oauth Key"), type: "text", required:true, description: "Tap to choose", submitOnChange: true, width: 6)
 		input(name: "apiSecret", title:inputTitle("Enter Oauth Secret"), type: "text", required:true, description: "Tap to choose", submitOnChange: true, width: 6)
 		String msg= """
@@ -509,6 +509,7 @@ void removeChildDevices(List devices, Boolean dummyOnly=false){
 static String getCallbackUrl()			{ return "https://cloud.hubitat.com/oauth/stateredirect" }
 static String getMowerApiEndpoint()		{ return "https://api.amc.husqvarna.dev/v1" }
 static String getApiEndpoint()			{ return "https://api.authentication.husqvarnagroup.dev/v1/oauth2" }
+static String getWssEndpoint()			{ return "wss://ws.openapi.husqvarna.dev/v1"}
 
 //String getBuildRedirectUrl()	{ return "${serverUrl}/oauth/stateredirect?access_token=${state.accessToken}" }
 String getStateUrl()			{ return "${getHubUID()}/apps/${app?.id}/callback?access_token=${state?.accessToken}" }
@@ -537,7 +538,7 @@ String oauthInitUrl(){
 }
 
 void parseAuthResponse(resp){
-	String msgH="Diplay http response | "
+	String msgH="Display http response | "
 	//log.debug "response data: ${myObj(resp.data)} ${resp.data}"
 	String str=sBLANK
 	resp.data.each {
@@ -1068,7 +1069,7 @@ void initialize(){
 		if(timeBeforeExpiry > 0) {
 			//state.connected=sFULL
 			apiRestored(false)
-		} else apiLost("initialze found expired token")
+		} else apiLost("initialize found expired token")
 	} else state.connected=sWARN
 	updateMyLabel()
 	state.reAttempt=0
