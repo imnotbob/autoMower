@@ -8,11 +8,11 @@
  *	on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
  *	for the specific language governing permissions and limitations under the License.
  *
- *  Modified August 15, 2021
+ *  Modified June 16, 2022
  */
 //file:noinspection unused
 
-static String getVersionNum() 		{ return "00.00.01" }
+static String getVersionNum() 		{ return "00.00.02" }
 static String getVersionLabel() 	{ return "Husqvarna AutoMower, version ${getVersionNum()}" }
 
 import groovy.transform.Field
@@ -58,6 +58,9 @@ metadata {
 		attribute 'name', 'STRING'
 		attribute 'model', 'STRING'
 		attribute 'serialNumber', 'STRING'
+        
+        attribute 'cuttingHeight',	'NUMBER' // (level)
+        attribute 'headlight',	'STRING' // ALWAYS_ON, ALWAYS_OFF, EVENING_ONLY, EVENING_AND_NIGHT
 
 		attribute 'apiConnected',		'STRING'
 		attribute 'debugEventFromParent',	'STRING'		// Read only
@@ -78,7 +81,10 @@ metadata {
 		command "parkindefinite", 		[] // park until further notice
 		command "park",					[[name: 'Duration*', type: 'NUMBER', description: 'Minutes']] // duration in minutes
 		command "resumeSchedule", 		[]
-	}
+        command "setCuttingHeight",		[[name: 'Height*', type: 'NUMBER', description: 'Level']] // duration
+        command "setHeadlightMode",		[[name: 'Mode*', type: 'ENUM', description: 'Mode', constraints: ["ALWAYS_ON", "ALWAYS_OFF", "EVENING_ONLY", "EVENING_AND_NIGHT"]]] // mode
+        command "setSchedule",		    [[name: 'taskList*', type: 'STRING', description: 'Task List']]
+    }
 
 	preferences {
 		input(name: "dummy", type: "text", title: "${getVersionLabel()}", description: " ", required: false)
@@ -137,7 +143,7 @@ def generateEvent(Map updates) {
 }
 
 def generateEvent(List<Map<String,Object>> updates) {
-	//log.debug "updates: ${updates}"
+	log.debug "updates: ${updates}"
 	//if (!state.version || (state.version != getVersionLabel())) updated()
 	String myVersion = getDataValue("myVersion")
 	if (!myVersion || (myVersion != getVersionLabel())) updated()
@@ -300,6 +306,91 @@ void resumeSchedule() {
 	if(parent.sendCmdToHusqvarna((String)state.id, foo)) {
 		LOG("resumeSchedule() sent",4, sTRACE)
 	}
+}
+
+void setCuttingHeight(level) {
+	if(level) {
+		LOG("setCuttingHeight($level)", 3, sTRACE)
+		Map foo = [data:[type:'settings',attributes:[cuttingHeight:level]]]
+		if(parent.sendSettingToHusqvarna((String)state.id, foo)) {
+			LOG("setCuttingHeight($level) sent",4, sTRACE)
+		}
+	}
+	else LOG("setCuttingHeight($level) no level specified",1, sERROR)
+}
+
+void setHeadlightMode(mode) {
+	if(mode) {
+		LOG("setHeadlight($mode)", 3, sTRACE)
+		Map foo = [data:[type:'settings',attributes:[headlight:[mode:mode]]]]
+		if(parent.sendSettingToHusqvarna((String)state.id, foo)) {
+			LOG("setHeadlight($mode) sent",4, sTRACE)
+		}
+	}
+	else LOG("setHeadlight($mode) no mode specified",1, sERROR)
+}
+
+/*
+void setSchedule(start, duration, daysOfWeek) {
+	if(start != null && duration != null && daysOfWeek != null) {
+		LOG("setSchedule($start, $duration, $daysOfWeek)", 3, sTRACE)
+        def taskList = []
+        if (start + duration <= 1440) {
+            def dayMap = parseDaysOfWeek(daysOfWeek)
+            def task = [start:start, duration:duration, monday:dayMap["monday"], tuesday:dayMap["tuesday"], wednesday:dayMap["wednesday"], thursday:dayMap["thursday"], friday:dayMap["friday"], saturday:dayMap["saturday"], sunday:dayMap["sunday"]]            
+            taskList.add(task)
+        }
+        else if (start + duration > 1440) {
+            // need to break up into two tasks since API doesn't allow a single task to span midnight
+            def firstDuration = 1440 - start
+            def firstDayMap = parseDaysOfWeek(daysOfWeek, false)
+            def firstTask = [start:start, duration:firstDuration, monday:firstDayMap["monday"], tuesday:firstDayMap["tuesday"], wednesday:firstDayMap["wednesday"], thursday:firstDayMap["thursday"], friday:firstDayMap["friday"], saturday:firstDayMap["saturday"], sunday:firstDayMap["sunday"]]
+            taskList.add(firstTask)
+            
+            def secondDuration = duration - firstDuration
+            def secondDayMap = parseDaysOfWeek(daysOfWeek, true)
+            def secondTask = [start:0, duration:secondDuration, monday:secondDayMap["monday"], tuesday:secondDayMap["tuesday"], wednesday:secondDayMap["wednesday"], thursday:secondDayMap["thursday"], friday:secondDayMap["friday"], saturday:secondDayMap["saturday"], sunday:secondDayMap["sunday"]]            
+            taskList.add(secondTask)
+        }
+        Map foo = [data:[type:'calendar', attributes:[tasks:taskList]]]
+		if(parent.sendScheduleToHusqvarna((String)state.id, foo)) {
+			LOG("setSchedule($start, $duration, $daysOfWeek)",4, sTRACE)
+		}
+	}
+	else LOG("setSchedule missing input parameter(s)",1, sERROR)
+}
+
+def parseDaysOfWeek(daysOfWeek, rightShift = false) {
+    def dayMap = [monday:daysOfWeek.substring(0,1), tuesday:daysOfWeek.substring(1,2), wednesday:daysOfWeek.substring(2,3), thursday:daysOfWeek.substring(3,4), friday:daysOfWeek.substring(4,5), saturday:daysOfWeek.substring(5,6), sunday:daysOfWeek.substring(6,7)]
+    def dayMapBool = [:]
+    if (!rightShift) {
+        dayMap.each { key, val ->
+            dayMapBool[key] = val == "1" ? true : false
+        }
+    }
+    else if (rightShift == true) {
+        // shift days of week to the right, for translating days of week for a window that spans midnight
+        dayMapBool["tuesday"] = dayMap["monday"] == "1" ? true : false
+        dayMapBool["wednesday"] = dayMap["tuesday"] == "1" ? true : false
+        dayMapBool["thursday"] = dayMap["wednesday"] == "1" ? true : false
+        dayMapBool["friday"] = dayMap["thursday"] == "1" ? true : false
+        dayMapBool["saturday"] = dayMap["friday"] == "1" ? true : false
+        dayMapBool["sunday"] = dayMap["saturday"] == "1" ? true : false
+        dayMapBool["monday"] = dayMap["sunday"] == "1" ? true : false
+    }
+    return dayMapBool
+}
+*/
+
+void setSchedule(taskList) {
+	if(taskList != null) {
+		LOG("setSchedule($taskList)", 3, sTRACE)
+        Map foo = [data:[type:'calendar', attributes:[tasks:taskList]]]
+		if(parent.sendScheduleToHusqvarna((String)state.id, foo)) {
+			LOG("setSchedule($taskList)",4, sTRACE)
+		}
+	}
+	else LOG("setSchedule missing input parameter(s)",1, sERROR)
 }
 
 void off() {
