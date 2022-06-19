@@ -30,6 +30,10 @@
 //file:noinspection unused
 //file:noinspection GroovyVariableNotAssigned
 
+// lgk june 2022 add human readable next run time
+// also add lastupdate and mower statistics
+
+
 import groovy.json.*
 import groovy.transform.Field
 import java.text.SimpleDateFormat
@@ -1486,6 +1490,8 @@ Boolean pollChildren(String deviceId=sBLANK,Boolean force=false){
 
 	Map foo=getAutoMowers(forcePoll,"pollChildren")
 	if(foo!=null) {
+        //log.debug "in poll"
+        
 		updatesLog.forcePoll=false
 		state.updatesLog=updatesLog
 		if(((List<String>)settings.mowers)?.size() < 1){
@@ -1510,7 +1516,16 @@ Boolean pollChildren(String deviceId=sBLANK,Boolean force=false){
 				Boolean holdIndefinite=( hold && srcMap.attributes.planner.nextStartTimestamp == 0)
 				Boolean holdUntilNext=( hold && srcMap.attributes.planner.nextStartTimestamp != 0)
 				String dbg=settings.debugLevel == null ? "2" : settings.debugLevel
-
+                
+                
+                //lgk get next run time into attribute  
+                def nxt =  srcMap.attributes.planner.nextStartTimestamp
+                def readableDate2 = new Date(nxt).format("E MMM dd, KK:mm a ", TimeZone.getTimeZone('UTC'))
+                def now = new Date().format('MM/dd/yyyy h:mm a', location.timeZone)
+                // lgk do collisions here otherwise it comes out as null not zero
+                def collisions = srcMap.attributes.statistics.numberofCollisions
+                if (collisions == null) collisions = 0
+               
 				flist << ['name':	(String)srcMap.attributes.system.name ] //STRING
 				flist << ['id':	srcMap.id ] //STRING
 				flist << ['model':	srcMap.attributes.system.model ] //STRING
@@ -1525,8 +1540,20 @@ Boolean pollChildren(String deviceId=sBLANK,Boolean force=false){
 				flist << ['errorCode':	srcMap.attributes.mower.errorCode ] // STRING
 				flist << ['errorTimeStamp': srcMap.attributes.mower.errorCodeTimestamp] // (EPOCH LONG)
 				flist << ['plannerNextStart': srcMap.attributes.planner.nextStartTimestamp] // (EPOCH LONG)
+                flist << ['nextRun': readableDate2]
 				flist << ['plannerOverride'	: srcMap.attributes.planner.override.action] // Override Action
+                flist << ['lastUpdate'	: now] 
 
+                // lgk get statistics
+               
+                flist << ['cuttingBladeUsageTime' : srcMap.attributes.statistics.cuttingBladeUsageTime /3600]
+                flist << ['numberOfChargingCycles' : srcMap.attributes.statistics.numberOfChargingCycles]
+                flist << ['numberOfCollisions' : collisions]
+                flist << ['totalChargingTime' : srcMap.attributes.statistics.totalChargingTime /3600]
+                flist << ['totalCuttingTime' : srcMap.attributes.statistics.totalCuttingTime /3600]
+                flist << ['totalRunningTime' : srcMap.attributes.statistics.totalRunningTime /3600]
+                flist << ['totalSearchingTime' : srcMap.attributes.statistics.totalSearchingTime /3600]
+   
 				flist << ['motion': moving ? 'active' : 'inactive']
 				flist << ['powerSource': onMain ? 'mains' : 'battery'] // "battery", "dc", "mains", "unknown"
 				flist << ['stuck': stuck]
