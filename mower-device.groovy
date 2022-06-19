@@ -9,6 +9,7 @@
  *	for the specific language governing permissions and limitations under the License.
  *
  *  Modified June 16, 2022
+ * lgk add lastupdatE, Readable next run time and statixtics. june 2022
  */
 //file:noinspection unused
 
@@ -41,40 +42,54 @@ metadata {
 		capability "Battery"
 		capability "Power Source"
 
-		attribute 'mowerStatus',		'STRING'
+		attribute 'mowerStatus',		'string'
 			//MAIN_AREA, SECONDARY_AREA, HOME, DEMO, UNKNOWN
-		attribute 'mowerActivity',	'STRING'
+		attribute 'mower]',	'string'
 			//UNKNOWN, NOT_APPLICABLE, MOWING, GOING_HOME, CHARGING, LEAVING, PARKED_IN_CS, STOPPED_IN_GARDEN
-		attribute 'mowerState',	'STRING'
+		attribute 'mowerState',	'string'
 			//UNKNOWN, NOT_APPLICABLE, PAUSED, IN_OPERATION, WAIT_UPDATING, WAIT_POWER_UP, RESTRICTED,
 			// OFF, STOPPED, ERROR, FATAL_ERROR, ERROR_AT_POWER_UP
-		attribute 'mowerConnected',	'STRING' // TRUE or FALSE
-		attribute 'mowerTimeStamp',	'STRING' // LAST TIME connected (EPOCH LONG)
+		attribute 'mowerConnected',	'string' // TRUE or FALSE
+		attribute 'mowerTimeStamp',	'string' // LAST TIME connected (EPOCH LONG)
 		//attribute 'battery'		'NUMBER' // Battery %
-		attribute 'errorCode',		'STRING' // current error code
+		attribute 'errorCode',		'string' // current error code
 		attribute 'errorTimeStamp',	'NUMBER' // (EPOCH LONG)
 		attribute 'plannerNextStart',	'NUMBER' // (EPOCH LONG)
-		attribute 'plannerOverride',	'STRING' // Override Action
-		attribute 'name', 'STRING'
-		attribute 'model', 'STRING'
-		attribute 'serialNumber', 'STRING'
+		attribute 'plannerOverride',	'string' // Override Action
+		attribute 'name', 'string'
+		attribute 'model', 'string'
+		attribute 'serialNumber', 'string'
+        attribute 'mowerActivity', 'string'
 
 		attribute 'cuttingHeight',	'NUMBER' // (level)
-		attribute 'headlight',	'STRING' // ALWAYS_ON, ALWAYS_OFF, EVENING_ONLY, EVENING_AND_NIGHT
+		attribute 'headlight',	'string' // ALWAYS_ON, ALWAYS_OFF, EVENING_ONLY, EVENING_AND_NIGHT
 
-		attribute 'apiConnected',		'STRING'
+		attribute 'apiConnected',		'string'
 		attribute 'debugEventFromParent',	'STRING'		// Read only
 		attribute 'debugLevel', 		'NUMBER'		// Read only - changed in preferences
-		attribute 'lastPoll', 			'STRING'
+		attribute 'lastPoll', 			'string'
 // deductions
 		//attribute 'motion'		'ENUM' // active, inactive
 		//attribute 'powerSource'	'ENUM' // "battery", "dc", "mains", "unknown"
 		attribute 'stuck',	'STRING' // TRUE or FALSE
 		attribute 'parked',	'STRING' // TRUE or FALSE
 		attribute 'hold',	'STRING' // TRUE or FALSE
-		attribute 'holdUntilNext',	'STRING' // TRUE or FALSE
-		attribute 'holdIndefinite',	'STRING' // TRUE or FALSE
-
+		attribute 'holdUntilNext',	'string' // TRUE or FALSE
+		attribute 'holdIndefinite',	'string' // TRUE or FALSE
+        
+        // lgk additions
+        attribute "nextRun", "string"
+        attribute 'lastUpdate', 'string'
+        attribute 'cuttineBladeUsageTime', 'number'
+        attribute 'numberOfChargingCycles', 'number'
+        attribute 'numberOfCollisions', 'number'
+        attribute 'totalChargingTime', 'number'
+        attribute 'totalCuttingTime', 'number'
+        attribute 'totalRunningTime', 'number'
+        attribute 'totalSearchingTime', 'number'
+    
+        
+        
 		command "start",		 		[[name: 'Duration*', type: 'NUMBER', description: 'Minutes']] // duration
 		command "pause", 				[]
 		command "parkuntilnext",		[] // until next schedule
