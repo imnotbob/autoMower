@@ -10,7 +10,7 @@
  *
  *	Husqvarna AutoMower
  *
- *  Modified June 16, 2022
+ *  Modified July 15, 2022
  *
  *  Instructions:
  *	Go to developer.husqvarnagroup.cloud
@@ -23,21 +23,27 @@
  *  Note: currently Husqvarna allows a total of 10K requests a month.  This app must poll so this must be taken into account
  *	This works out to shortest poll is every 5 minutes, with little remaining headroom
  */
-//file:noinspection GroovyPointlessBoolean
+
 //file:noinspection GroovyDoubleNegation
 //file:noinspection GroovyUnusedAssignment
 //file:noinspection GroovySillyAssignment
 //file:noinspection unused
 //file:noinspection GroovyVariableNotAssigned
+//file:noinspection GrDeprecatedAPIUsage
 
 import groovy.json.*
 import groovy.transform.Field
 import java.text.SimpleDateFormat
 
-static String getVersionNum()		{ return "00.00.02" }
+static String getVersionNum()		{ return "00.00.03" }
 static String getVersionLabel()		{ return "Husqvarna Automower Manager, version "+getVersionNum() }
 static String getMyNamespace()		{ return "imnotbob" }
-static Integer getMinMinsBtwPolls()	{ return 3 }
+
+Integer getMinMinsBtwPolls() {
+	Integer mult = getWWebSocketStatus() ? 20 : 1
+	return (3 * mult).toInteger()
+}
+
 static String getAutoMowerName()	{ return "Husqvarna AutoMower" }
 
 @Field static final String sNULL	= (String)null
@@ -51,6 +57,7 @@ static String getAutoMowerName()	{ return "Husqvarna AutoMower" }
 @Field static final String sFULL	= 'full'
 @Field static final String sBOOL	= 'bool'
 @Field static final String sENUM	= 'enum'
+@Field static final String sPOLL	= 'poll'
 
 definition(
 	name:			"Husqvarna AutoMower Manager",
@@ -83,6 +90,114 @@ mappings {
 	path("/oauth/callback"){action: [GET: "callback"]}
 }
 
+void installed(){
+	LOG("Installed with settings: ${settings}",1,sTRACE)
+	initialize()
+}
+
+void uninstalled(){
+	LOG("Uninstalling...",0,sWARN)
+	unschedule()
+	unsubscribe()
+	removeChildDevices( (List)getAllChildDevices(), false )	// delete all my children!
+	// Child apps are supposedly automatically deleted.
+}
+
+void updated(){
+	LOG("Updated with settings: ${settings}",2,sTRACE)
+	unschedule()
+	unsubscribe()
+	cleanupStates()
+	initialize()
+}
+
+@Field static Random randomSeed=new Random()
+
+void initialize(){
+	unsubscribe()
+	unschedule()
+
+	createSocketDev()
+
+	LOG("${getVersionLabel()} Initializing...", 2, sDEBUG)
+
+	if(settings.pollingInterval == null){ app.updateSetting('pollingInterval', "15") }
+
+	Integer tt=randomSeed.nextInt(100)	// get the random number generator going
+
+	state.inPollChildren=true
+	state.skipTime=wnow()
+
+	if((String)state.authToken && (Boolean)state.initialized) {
+		Long timeBeforeExpiry= state.authTokenExpires ? (Long)state.authTokenExpires - wnow() : 0
+		if(timeBeforeExpiry > 0) {
+			//state.connected=sFULL
+			apiRestored(false)
+		} else apiLost("initialize found expired token")
+	} else state.connected=sWARN
+
+	updateMyLabel()
+	state.reAttempt=0
+	state.remove('reAttempt')
+	if(state.inTimeoutRetry){ state.inTimeoutRetry=0; state.remove('inTimeoutRetry') }
+
+	Map updatesLog=[mowerUpdated:true, runtimeUpdated:true, forcePoll:true, getWeather:true, alertsUpdated:true, extendRTUpdated:true ]
+	state.updatesLog=updatesLog
+
+	state.numAvailMowers=0
+	state.mowerData=[:]
+
+	Map myMowers
+	myMowers=null
+	if((Boolean)state.initialized){
+		myMowers=getAutoMowers(true, "initialize")
+	}
+	Boolean apiOk=(myMowers!=null)
+
+	// Create children, This should only be needed during initial setup and when mowers or sensors are added or removed.
+	Boolean aOK
+	aOK=apiOk
+	aOK=(aOK && ((List<String>)settings.mowers)?.size() > 0)
+	if(aOK) { aOK=createChildrenMowers() }
+	if(aOK) deleteUnusedChildren()
+
+	subscribe(location, "systemStart", rebooted)					// re-initialize if the hub reboots
+
+	state.inPollChildren=false
+	state.remove('inPollChildren')
+	state.remove('skipTime')
+	state.lastScheduledPoll=null
+
+	if(aOK){ forceNextPoll() }
+
+	// Schedule the various handlers
+	checkPolls('initialize() ', apiOk, true)
+
+	if(!(Boolean)state.initialized){
+		state.initialized=true
+		// These two below are for debugging and statistics purposes
+		state.initializedEpoch=wnow()
+		state.initializedDate=getDtNow() // getTimeStamp
+	}
+
+	//send activity feeds to tell devices connection status
+	String notificationMessage=aOK ? "is connected" : (apiOk ? "had an error during setup of devices" : "api not connected")
+
+	LOG("${getVersionLabel()} - initialization complete "+notificationMessage,2,sDEBUG)
+	if(!state.versionLabel) state.versionLabel=getVersionLabel()
+	if(aOK) runIn(8, sPOLL, [overwrite: true])
+}
+
+void rebooted(evt){
+	LOG("Hub rebooted, re-initializing", 2, sTRACE)
+	initialize()
+	runIn(6, "chkRestartSocket")
+}
+
+
+
+
+
 
 def mainPage(){
 	String version=getVersionLabel()
@@ -106,6 +221,10 @@ def mainPage(){
 		if((Boolean)state.initialized && !(String)state.authToken){
 			section(){
 				paragraph(getFormat("warning", "You are no longer connected to the Husqvarna API. Please re-Authorize below."))
+			}
+			def dev= getSocketDevice()
+			if(dev) {
+				dev.removeCookies(true)
 			}
 		}
 
@@ -191,7 +310,8 @@ def removePage(){
 }
 
 Boolean initializeEndpoint(Boolean disableRetry=false) {
-	String accessToken=(String)state.accessToken
+	String accessToken
+	accessToken=(String)state.accessToken
 	if(!accessToken){
 		try {
 			accessToken=createAccessToken()
@@ -243,9 +363,11 @@ def authPage(){
 		}
 	}
 
-	String description=sBLANK
-	Boolean uninstallAllowed=false
-	Boolean oauthTokenProvided=false
+	String description
+	description=sBLANK
+	Boolean uninstallAllowed, oauthTokenProvided
+	uninstallAllowed=false
+	oauthTokenProvided=false
 
 	if((String)state.authToken){
 		description="You are connected. Click Next/Done below."
@@ -444,10 +566,11 @@ Boolean testForDeviceHandlers(){
 		}
 	}
 
-	String DNIAdder=now().toString()
+	String DNIAdder=wnow().toString()
 	String d1Str="dummyMowerDNI-${DNIAdder}"
 	def d1
-	Boolean success=false
+	Boolean success
+	success=false
 	List myChildren=(List)getAllChildDevices()
 	if(myChildren.size() > 0) removeChildDevices( myChildren, true )	// Delete my test children
 	LOG("testing for device handlers", 4, sTRACE)
@@ -461,7 +584,8 @@ Boolean testForDeviceHandlers(){
 		}
 	}
 	LOG("device handlers=${success}", 4, sINFO)
-	Boolean deletedChildren=true
+	Boolean deletedChildren
+	deletedChildren=true
 	try {
 		if(d1) deleteChildDevice(d1Str)
 	} catch(Exception e){
@@ -483,8 +607,10 @@ void removeChildDevices(List devices, Boolean dummyOnly=false){
 	if(!devices){
 		return
 	}
-	Boolean first=true
-	String devName=sNULL
+	Boolean first
+	first=true
+	String devName
+	devName=sNULL
 	try {
 		devices?.each {
 			devName=it.displayName
@@ -506,10 +632,142 @@ void removeChildDevices(List devices, Boolean dummyOnly=false){
 }
 
 
+
+
+String getSocketDNI(){
+	String myId=app.getId()
+	String nmS
+	nmS = 'automower_websocket'
+	nmS = myId + '|' + nmS
+	return nmS
+}
+
+def getSocketDevice(){
+	return getChildDevice(getSocketDNI())
+}
+
+void createSocketDev(){
+	String nmS= getSocketDNI()
+	def wsDevice = getChildDevice(nmS)
+	if (!wsDevice) {
+		String wsChildHandlerName = "Husqvarna AutoMower WS"
+		def a = addChildDevice("imnotbob", wsChildHandlerName, nmS, null, [name: wsChildHandlerName, label: "Husqvarna AutoMower - WebSocket", completedSetup: true])
+	}
+}
+
+void chkRestartSocket(Boolean frc=true){
+	def dev= getSocketDevice()
+	if(dev && (frc || !(Boolean)dev?.isSocketActive())) {
+		LOG("chkRestartSocket: re-initializing websocket", 1, sTRACE)
+		dev.triggerInitialize()
+	}
+}
+
+Boolean getWWebSocketStatus(){
+	return (Boolean)state.websocketActive
+}
+
+void webSocketStatus(Boolean active) {
+	state.websocketActive = active
+}
+
+@SuppressWarnings('GroovyFallthrough')
+void wsEvtHandler(Map evt){
+
+	LOG("wsEvtHandler evt: ${evt}", 4, sDEBUG)
+
+	//List<Map> ndata=((List<Map>)adata.data)?.findAll { it.type == "mower" }
+
+//	state.numAvailMowers=((List<Map>)ndata)?.size() ?: 0
+	Boolean fndMower,didChg
+	fndMower=true
+	didChg=false
+
+	String dni=getMowerDNI((String)evt.id)
+	if(!(dni in (List<String>)settings.mowers)){
+		LOG("wsEvtHandler DID NOT FIND $dni in settings", 4, sDEBUG)
+		fndMower=false
+	}
+
+	Map mowersLocation,mowerLoc
+	mowersLocation= state.mowersLocation ?: [:]
+	mowerLoc= mowersLocation[dni] ? mowersLocation: [:]
+
+	Map<String, Map> mdata=(Map<String,Map>)state.mowerData ?: [:]
+
+	Map mower= mdata && dni ? mdata[dni] : null
+	String typ=evt.type
+
+	if(mower && typ){
+		switch(typ){
+			case 'status-event':
+
+			case 'positions-event':
+
+			case 'settings-event':
+				if(evt.attributes){
+					Map ma= (Map)mdata[dni].attributes
+					((Map)evt.attributes).each {
+						LOG("wsEvtHandler - type: ${typ} key: ${it.key} value: ${it.value}", 4, sDEBUG)
+						if((String)it.key in ['cuttingHeight','headlight']){
+							Map mas= (Map)ma.settings
+							mas[it.key]=it.value
+							didChg=true
+						}else{
+							if((String)it.key in ['calendar','positions','battery','mower','metadata','planner','statistics']){
+								ma[it.key]=it.value
+								if((String)it.key=='mower' && mowerLoc){
+									mowerLoc[dni]=((Map)it.value).activity
+									state.mowersLocation=  mowerLoc
+								}
+								didChg=true
+							}else{
+								LOG("wsEvtHandler NOT FOUND - type: ${typ} key: ${it.key} value: ${it.value}", 4, sDEBUG)
+							}
+						}
+					}
+					//LOG("wsEvtHandler mdata[${dni}]: ${mdata[dni]}", 4, sDEBUG)
+					//LOG("wsEvtHandler ma: ${ma}", 4, sDEBUG)
+					mdata[dni].attributes=ma
+				}
+				break
+			default:
+				LOG("wsEvtHandler NO MATCH - type: ${typ} evt: ${evt}", 4, sDEBUG)
+
+		}
+	}else{
+		LOG("wsEvtHandler NO mower or type - type: ${typ} mower: ${mower}", 4, sDEBUG)
+
+	}
+//	ndata.each { Map mower ->
+//		mowers[dni]=getMowerDisplayName(mower)
+//		mowersLocation[dni]=getMowerLocation(mower)
+//		mdata[dni]=mower
+//	}
+	state.mowerData=mdata
+	//log.debug "resp: ${state.mowerData}"
+
+	if(fndMower && didChg){
+		updTsVal("getAutoUpdDt")
+		updateLastPoll(false,true)
+
+		Boolean a= updateMowerChildren()
+
+	}
+}
+
+String getCookieS(){
+	return (String)state.authToken
+}
+
+
+
+
+
 static String getCallbackUrl()			{ return "https://cloud.hubitat.com/oauth/stateredirect" }
 static String getMowerApiEndpoint()		{ return "https://api.amc.husqvarna.dev/v1" }
 static String getApiEndpoint()			{ return "https://api.authentication.husqvarnagroup.dev/v1/oauth2" }
-static String getWssEndpoint()			{ return "wss://ws.openapi.husqvarna.dev/v1"}
+//static String getWssEndpoint()			{ return "wss://ws.openapi.husqvarna.dev/v1"}
 
 //String getBuildRedirectUrl()	{ return "${serverUrl}/oauth/stateredirect?access_token=${state.accessToken}" }
 String getStateUrl()			{ return "${getHubUID()}/apps/${app?.id}/callback?access_token=${state?.accessToken}" }
@@ -527,7 +785,7 @@ String oauthInitUrl(){
 	Map oauthParams=[
 		response_type:	"code",
 		client_id:	getHusqvarnaApiKey(),					// actually, the AutoMower Manager app's client ID
-		scope:		"app",
+		scope:		"iam:read amc:api", // was app
 		redirect_uri:	getCallbackUrl(),
 		state:		state.oauthInitState
 	]
@@ -540,7 +798,8 @@ String oauthInitUrl(){
 void parseAuthResponse(resp){
 	String msgH="Display http response | "
 	//log.debug "response data: ${myObj(resp.data)} ${resp.data}"
-	String str=sBLANK
+	String str
+	str=sBLANK
 	resp.data.each {
 		str += "\n${it.key} --> ${it.value}, "
 	}
@@ -574,7 +833,8 @@ def callback(){
 	LOG("callback()>> params: ${params}" /* params.code ${params.code}, params.state ${params.state}, state.oauthInitState ${state.oauthInitState}"*/, 4, sDEBUG)
 	def code=params.code
 	String oauthState=params.state
-	String eMsg = sNULL
+	String eMsg
+	eMsg = sNULL
 
 	if(oauthState == state.oauthInitState){
 		LOG("callback() --> States matched!", 4)
@@ -606,11 +866,11 @@ def callback(){
 					String kk
 					resp.data.each { kk=it.key }
 					Map ndata=(Map)new JsonSlurper().parseText(kk)
-//					log.debug "ndata : ${ndata}"
+					log.debug "ndata : ${ndata}"
 
 					state.refreshToken=ndata.refresh_token
 					state.authToken=ndata.access_token
-					Long tt= (Long)now() + (ndata.expires_in * 1000)
+					Long tt= wnow() + (ndata.expires_in * 1000)
 					//log.error "tt is ${tt}"
 					state.authTokenExpires=tt
 					atomicState.refreshToken=ndata.refresh_token
@@ -622,6 +882,13 @@ def callback(){
 					LOG("swapped token: $ndata; state.refreshToken: ${state.refreshToken}; state.authToken: ${(String)state.authToken}", 3)
 					state.remove('oauthInitState')
 					eMsg = success()
+
+					def dev= getSocketDevice()
+					if(dev){
+						dev.updateCookies(ndata.access_token)
+						if(!(Boolean)dev.isSocketActive()) { dev.triggerInitialize() }
+					}
+
 				} else { eMsg = fail() }
 			}
 		} catch(Exception e){
@@ -636,7 +903,7 @@ def callback(){
 	render contentType: 'text/html', data: eMsg
 }
 
-String success(){
+static String success(){
 	String message="""
 	<p>Your AutoConnect Account is now connected!</p>
 	<p>Close this window and click 'Done' to finish setup.</p>
@@ -644,7 +911,7 @@ String success(){
 	return connectionStatus(message)
 }
 
-String fail(){
+static String fail(){
 	String message="""
 		<p>The connection could not be established!</p>
 		<p>Close this window and click 'Done' to return to the menu.</p>
@@ -652,7 +919,7 @@ String fail(){
 	return connectionStatus(message)
 }
 
-String connectionStatus(String message, Boolean close=false){
+static String connectionStatus(String message, Boolean close=false){
 	String redirectHtml = close ? """<script>document.getElementsByTagName('html')[0].style.cursor = 'wait';setTimeout(function(){window.close()},2500);</script>""" : sBLANK
 	/*String redirectHtml=sBLANK
 	if(redirectUrl){
@@ -744,7 +1011,8 @@ static String myObj(obj){
 }
 
 Boolean weAreLost(String msgH, String meth){
-	String msg = sBLANK
+	String msg
+	msg = sBLANK
 	if(!(String)state.authToken) {
 		apiLost(msgH+"weAreLost() found no auth token, called by ${meth}")
 	}
@@ -772,16 +1040,25 @@ Map<String,String> getAutoMowers(Boolean frc=false, String meth="followup", Bool
 	if(weAreLost(msgH, 'getAutoMowers')){
 		return null
 	}
-	String cached=sBLANK
-	Boolean skipIt=false
+
+	Map<String,String> res
+	res=[:]
+
+	String cached,msg
+	cached=sBLANK
+	Boolean skipIt
+	skipIt=false
 	Boolean myfrc=(!state.mowerData || !state.mowersWithNames)
-	Integer lastU=getLastTsValSecs("getAutoUpdDt")
+	Integer lastU=getLastTsValSecs("getAutoUpdDt") // last attempt
 	if( (frc && lastU < 60)) { skipIt=true }
 	if( (!frc && lastU < 150) ) { skiptIt=true } // related to getMinMinsBtwPolls
-	Map<String, String> mowers=[:]
-	Map mowersLocation=[:]
 
-	String msg=sBLANK
+	Map<String,String> mowers
+	mowers=[:]
+	Map mowersLocation
+	mowersLocation=[:]
+
+	msg=sBLANK
 
 	if(myfrc || !skipIt) {
 		updTsVal("getAutoUpdDt")
@@ -805,6 +1082,8 @@ Map<String,String> getAutoMowers(Boolean frc=false, String meth="followup", Bool
 			msg=sBLANK
 		}
 
+		Boolean exitout
+		exitout=false
 		try {
 			httpGet(deviceListParams) { resp ->
 				LOG(msgH + "httpGet() ${resp.status} Response", 4, sTRACE)
@@ -835,12 +1114,14 @@ Map<String,String> getAutoMowers(Boolean frc=false, String meth="followup", Bool
 					if(resp.status == 500) { //} && resp.data?.status?.code == 14) {
 						if(!isRetry){
 							LOG(msgH + "Refreshing auth_token!", 3, sTRACE)
-							if(refreshAuthToken('getAutoMowers')) return getAutoMowers(frc, meth, true)
+							if(refreshAuthToken('getAutoMowers')){
+								res= getAutoMowers(frc, meth, true)
+							}
 						}
 					}else{
 						LOG(msgH + "Other error. Status: ${resp.status} Response data: ${rdata} ", 1, sERROR)
 					}
-					return [:]
+					exitout=true
 				}
 			}
 		} catch(Exception e) {
@@ -848,8 +1129,9 @@ Map<String,String> getAutoMowers(Boolean frc=false, String meth="followup", Bool
 			if(!isRetry) {
 				Boolean a = refreshAuthToken('getAutoMowers')
 			}
-			return [:]
+			exitout=true
 		}
+		if(exitout) return res
 		state.mowersWithNames=mowers
 		state.mowersLocation=mowersLocation
 	}else{
@@ -905,6 +1187,8 @@ Boolean sendCmdToHusqvarna(String mowerId, Map data, Boolean isRetry=false, Stri
 		msg=sBLANK
 	}
 
+	Boolean res
+	res=false
 	try {
 		httpPost(deviceListParams) { resp ->
 			String rdata
@@ -915,8 +1199,9 @@ Boolean sendCmdToHusqvarna(String mowerId, Map data, Boolean isRetry=false, Stri
 				if(rdata) adata=(Map)new JsonSlurper().parseText(rdata)
 			}*/
 			if(resp && resp.isSuccess() && resp.status >= 200 && resp.status <= 299) {
-				LOG(msgH + "httpPost() ${resp.status} Response", 2, sTRACE)
-				runIn(85, poll, [overwrite: true]) // give time for command to complete; then get new status
+				res=true
+				LOG(msgH + "httpPost() ${resp.status} Response $res", 2, sTRACE)
+				runIn(85, sPOLL, [overwrite: true]) // give time for command to complete; then get new status
 			}else{
 				LOG(msgH + "httpPost() in else: http status: ${resp.status}", 1, sTRACE)
 				//refresh the auth token
@@ -925,23 +1210,21 @@ Boolean sendCmdToHusqvarna(String mowerId, Map data, Boolean isRetry=false, Stri
 					//state.action="getAutoMowers"
 					if(!isRetry){
 						LOG(msgH + "Refreshing auth_token!", 3, sTRACE)
-						if(refreshAuthToken('sendCmdToHusqvarna')) return sendCmdToHusqvarna(mowerId, data, true,uriend)
+						if(refreshAuthToken('sendCmdToHusqvarna')) res= sendCmdToHusqvarna(mowerId, data, true,uriend)
 					}
 				}else{
-					LOG(msgH + "Other error. Status: ${resp.status} Response data: ${rdata} ", 1, sERROR)
+					LOG(msgH + "Other error. Status: ${resp.status} Response data: ${rdata} $res", 1, sERROR)
 				}
-				return false
 			}
 		}
 	} catch(Exception e) {
-		LOG(msgH + "___exception", 1, sERROR, e)
+		LOG(msgH + "___exception $res", 1, sERROR, e)
 		//state.action="getAutoMowers"
 		if(!isRetry) {
 			Boolean a = refreshAuthToken('sendCmdToHusqvarna')
 		}
-		return false
 	}
-	return true
+	return res
 }
 
 Boolean sendSettingToHusqvarna(String mowerId, Map data, Boolean isRetry=false) {
@@ -967,7 +1250,8 @@ String getMowerName(String tid){
 	// Get the name for this mower
 	String DNI=getMowerDNI(tid)
 	Map<String,String> mowersWithNames=state.mowersWithNames
-	String mowerName=(mowersWithNames?.containsKey(DNI)) ? mowersWithNames[DNI] : sBLANK
+	String mowerName
+	mowerName=(mowersWithNames?.containsKey(DNI)) ? mowersWithNames[DNI] : sBLANK
 	if(mowerName == sBLANK){ mowerName=getChildDevice(DNI)?.displayName } // better than displaying 'null' as the name
 	return mowerName
 }
@@ -993,37 +1277,10 @@ static String getMowerLocation(Map mower){
 	return "location not found??"
 }
 
-void installed(){
-	LOG("Installed with settings: ${settings}",1,sTRACE)
-	initialize()
-}
-
-void uninstalled(){
-	LOG("Uninstalling...",0,sWARN)
-	unschedule()
-	unsubscribe()
-	removeChildDevices( (List)getAllChildDevices(), false )	// delete all my children!
-	// Child apps are supposedly automatically deleted.
-}
-
-void updated(){
-	LOG("Updated with settings: ${settings}",2,sTRACE)
-	unschedule()
-	unsubscribe()
-	cleanupStates()
-	initialize()
-}
-
-void rebooted(evt){
-	LOG("Hub rebooted, re-initializing", 2, sTRACE)
-	initialize()
-}
-
 void settingUpdate(String name, value, String type=sNULL){
 	if(name && type){
 		app.updateSetting(name, [type: type, value: value])
-	}
-	else if(name && !type){ app.updateSetting(name, value) }
+	} else if(name && !type){ app.updateSetting(name, value) }
 }
 
 void settingRemove(String name){
@@ -1033,6 +1290,9 @@ void settingRemove(String name){
 
 void cleanupStates(){
 	LOG("Cleaning up states", 3, sTRACE)
+
+	state.remove('needPrograms')
+
 	remTsVal('getAutoUpdDt')
 	state.remove('timeSendPush')
 	state.remove('oauthInitState')
@@ -1055,85 +1315,12 @@ void cleanupStates(){
 	state.remove('audio') */
 }
 
-@Field static final Integer iWATCHDOGINTERVAL=10	// In minutes
-@Field static final Integer iREATTEMPTINTERVAL=30	// In seconds
-
-@Field static Random randomSeed=new Random()
-
-void initialize(){
-	unsubscribe()
-	unschedule()
-
-	LOG("${getVersionLabel()} Initializing...", 2, sDEBUG)
-
-	if(settings.pollingInterval == null){ app.updateSetting('pollingInterval', "15") }
-
-	Integer tt=randomSeed.nextInt(100)	// get the random number generator going
-
-	state.inPollChildren=true
-	state.skipTime=now()
-
-	if((String)state.authToken && (Boolean)state.initialized) {
-		Long timeBeforeExpiry= state.authTokenExpires ? (Long)state.authTokenExpires - now() : 0
-		if(timeBeforeExpiry > 0) {
-			//state.connected=sFULL
-			apiRestored(false)
-		} else apiLost("initialize found expired token")
-	} else state.connected=sWARN
-	updateMyLabel()
-	state.reAttempt=0
-	state.remove('reAttempt')
-	if(state.inTimeoutRetry){ state.inTimeoutRetry=0; state.remove('inTimeoutRetry') }
-
-	Map updatesLog=[mowerUpdated:true, runtimeUpdated:true, forcePoll:true, getWeather:true, alertsUpdated:true, extendRTUpdated:true ]
-	state.updatesLog=updatesLog
-
-	state.numAvailMowers=0
-	state.mowerData=[:]
-
-	Map myMowers
-	if((Boolean)state.initialized){
-		myMowers=getAutoMowers(true, "initialize")
-	}
-	Boolean apiOk=(myMowers!=null)
-
-	// Create children, This should only be needed during initial setup and when mowers or sensors are added or removed.
-	Boolean aOK=apiOk
-	aOK=(aOK && ((List<String>)settings.mowers)?.size() > 0)
-	if(aOK) { aOK=createChildrenMowers() }
-	if(aOK) deleteUnusedChildren()
-
-	subscribe(location, "systemStart", rebooted)					// re-initialize if the hub reboots
-
-	state.inPollChildren=false
-	state.remove('inPollChildren')
-	state.remove('skipTime')
-	state.lastScheduledPoll=null
-
-	if(aOK){ forceNextPoll() }
-
-	// Schedule the various handlers
-	checkPolls('initialize() ', apiOk, true)
-
-	if(!(Boolean)state.initialized){
-		state.initialized=true
-		// These two below are for debugging and statistics purposes
-		state.initializedEpoch=now()
-		state.initializedDate=getDtNow() // getTimeStamp
-	}
-
-	//send activity feeds to tell devices connection status
-	String notificationMessage=aOK ? "is connected" : (apiOk ? "had an error during setup of devices" : "api not connected")
-
-	LOG("${getVersionLabel()} - initialization complete "+notificationMessage,2,sDEBUG)
-	if(!state.versionLabel) state.versionLabel=getVersionLabel()
-	if(aOK) runIn(8, poll, [overwrite: true])
-}
-
 Boolean createChildrenMowers(){
-	Boolean result=true
-	Integer ccnt=0
-	Integer fnd=0
+	Boolean result
+	result=true
+	Integer ccnt,fnd
+	ccnt=0
+	fnd=0
 	LOG("createChildrenMowers() entered: mowers=${(List<String>)settings.mowers}", 4, sTRACE)
 	// Create the child Mower Devices
 	List devices=((List<String>)settings.mowers).collect { dni ->
@@ -1193,7 +1380,7 @@ void deleteUnusedChildren(){
 		LOG("These are currently all of my children: ${allMyChildren}", 4, sDEBUG)
 
 		// Don't delete any devices that are configured in settings (mowers)
-		List childrenToKeep=((List<String>)settings.mowers ?: [])
+		List childrenToKeep=((List<String>)settings.mowers ?: []) + [ getSocketDNI() ] //socket
 		LOG("These are the children to keep around: ${childrenToKeep}", 4, sTRACE)
 
 		List childrenToDelete=allMyChildren.findAll { !childrenToKeep.contains(it.deviceNetworkId) }
@@ -1207,14 +1394,16 @@ void deleteUnusedChildren(){
 void scheduledWatchdog(evt=null, Boolean local=false, String meth="schedule/runin"){
 	String msgH="scheduledWatchdog() | "
 	String evtStr=evt ? "${evt.name}:${evt.value}" : 'null'
-	String msg="event: (${evtStr}) | local (${local}) | by ${meth} | "
+	String msg
+	msg="event: (${evtStr}) | local (${local}) | by ${meth} | "
 	Boolean debugLevelFour=debugLevel(4)
 	if(debugLevelFour) { LOG(msgH+msg, 4, sTRACE); msg=sBLANK }
 
 	// Check to see if we have called too soon
-	if(!state.lastScheduledWatchdog) state.lastScheduledWatchdog=now() - 3600001L
-	Long oldLast=state.lastScheduledWatchdog
-	Long timeSinceLastWatchdog=(now() - oldLast) / 60000L
+	if(!state.lastScheduledWatchdog) state.lastScheduledWatchdog=wnow() - 3600001L
+	Long oldLast
+	oldLast=state.lastScheduledWatchdog
+	Long timeSinceLastWatchdog= Math.round((wnow() - oldLast) / 60000L)
 	if( timeSinceLastWatchdog < 2L ){
 		msg += "It has only been ${timeSinceLastWatchdog*60} seconds since last call. Exiting"
 		if(debugLevelFour) LOG(msgH+msg, 4, sTRACE)
@@ -1223,7 +1412,7 @@ void scheduledWatchdog(evt=null, Boolean local=false, String meth="schedule/runi
 
 	// check if token needs to be refreshed
 	Long texp = (Long)state.authTokenExpires
-	Long timeBeforeExpiry=texp ? texp - now() : 0L
+	Long timeBeforeExpiry=texp ? texp - wnow() : 0L
 	if(timeBeforeExpiry < 1800000L){
 		msg += "Calling refreshToken | timeBeforeExpiry: ${timeBeforeExpiry} | "
 		if(debugLevelFour) { LOG(msgH+msg, 4, sTRACE); msg=sBLANK }
@@ -1244,11 +1433,11 @@ void scheduledWatchdog(evt=null, Boolean local=false, String meth="schedule/runi
 	String oldLastS=state.lastScheduledWatchdogDate
 	// Only update the Scheduled timestamp if run by a timer (schedule or runIn)
 	if( (evt==null && !local) || !oldLast || !oldLastS ){
-		state.lastScheduledWatchdog=now()
+		state.lastScheduledWatchdog=wnow()
 		state.lastScheduledWatchdogDate=getTimestamp()
-		if(!oldLast) oldLast=now() - 3600001L
+		if(!oldLast) oldLast=wnow() - 3600001L
 
-		if(now() > (oldLast+3600000L)){
+		if(wnow() > (oldLast+3600000L)){
 			// do a forced update once an hour, just because (e.g., forces Hold Status to update completion date string)
 			forceNextPoll()
 			msg += "forcing device update | "
@@ -1261,30 +1450,36 @@ void scheduledWatchdog(evt=null, Boolean local=false, String meth="schedule/runi
 void checkPolls(String msgH, Boolean apiOk=true, Boolean frc=false){
 	Boolean haveMowers=(((List<String>)settings.mowers)?.size() > 0)
 	if(apiOk && haveMowers) {
+		chkRestartSocket(false)
 		if(frc) LOG("Spawning the poll scheduled event. (mowers.size(): ${((List<String>) settings.mowers)?.size()})", 2, sTRACE)
-		if(frc || !isDaemonAlive("poll", msgH)) {
-			LOG(msgH + "rescheduling poll daemon", 1, sTRACE); spawnDaemon("poll", !frc)
+		if(frc || !isDaemonAlive(sPOLL, msgH)) {
+			LOG(msgH + "rescheduling poll daemon", 1, sTRACE); spawnDaemon(sPOLL, !frc)
 		}
 	}else{
-		unschedule(pollScheduled)
+		unschedule('pollScheduled')
 		if(frc && !haveMowers) LOG(msgH+"Not starting poll daemon; there are no mowers currently selected for use", 1, sWARN)
 	}
 	if(frc || !isDaemonAlive("watchdog", msgH)){ LOG(msgH+"rescheduling watchdog daemon",1,sTRACE); spawnDaemon("watchdog", !frc) }
 }
 
+@Field static final Integer iWATCHDOGINTERVAL=10	// In minutes
+@Field static final Integer iREATTEMPTINTERVAL=30	// In seconds
+
 Boolean isDaemonAlive(String daemon="all", String msgI){
 	String msgH="isDaemonAlive(${daemon}, calledby: ${msgI}) | "
-	String msg=sBLANK
+	String msg
+	msg=sBLANK
 	Boolean debugLevelFour=debugLevel(4)
-	List<String> daemonList=["poll", "watchdog", "all"]
+	List<String> daemonList=[sPOLL, "watchdog", "all"]
 
-	Boolean result=true
+	Boolean result
+	result=true
 
-	//if(debugLevelFour) LOG("isDaemonAlive() - now() == ${now()} for daemon (${daemon})", 1, sTRACE)
+	//if(debugLevelFour) LOG("isDaemonAlive() - wnow() == ${wnow()} for daemon (${daemon})", 1, sTRACE)
 
-	if(daemon == "poll" || daemon == "all"){
+	if(daemon == sPOLL || daemon == "all"){
 		Integer pollingInterval=getPollingInterval()
-		Map resM=checkT('poll', (Long)state.lastScheduledPoll, pollingInterval)
+		Map resM=checkT(sPOLL, (Long)state.lastScheduledPoll, pollingInterval)
 		msg += resM.msg ?: sBLANK
 		result=resM.res && result
 	}
@@ -1308,39 +1503,45 @@ Boolean isDaemonAlive(String daemon="all", String msgI){
 }
 
 Map checkT(String typ, Long lVal, Integer intervalMins){
-	Boolean result=true
+	Boolean result
+	result=true
 	Long lastScheduled=lVal
-	Long timeSinceLastMins=!lastScheduled ? 1000L : ((now() - lastScheduled) / 60000)
-	String msg=sBLANK
+	Long timeSinceLastMins=!lastScheduled ? 1000L : ((wnow() - lastScheduled) / 60000)
+	String msg
+	msg=sBLANK
 	msg += "Checking daemon ${typ} | "
-	msg += "Time since last ${timeSinceLast} mins -- lastScheduled == ${lastScheduled} | "
+	msg += "Time since last ${timeSinceLastMins} mins -- lastScheduled == ${lastScheduled} | "
 
 	if( timeSinceLastMins >= (intervalMins + getMinMinsBtwPolls() + 2)) result=false
-	msg += !result ? "Not running | " : sBLANK
+	msg += !result ? "NOT RUNNING | " : sBLANK
 	return [res: result, msg: msg]
 }
 
-Boolean spawnDaemon(String daemon="all", Boolean unsched=true){
+Boolean spawnDaemon(String idaemon="all", Boolean unsched=true){
+	String daemon
+	daemon=idaemon
 	String msgH="spawnDaemon(${daemon}, $unsched) | "
-	String msg=sBLANK
+	String msg
+	msg=sBLANK
 	Boolean debugLevelFour=debugLevel(4)
-	List<String> daemonList=["poll", "watchdog", "all"]
+	List<String> daemonList=[sPOLL, "watchdog", "all"]
 
 	daemon=daemon.toLowerCase()
-	Boolean result=true
+	Boolean result
+	result=true
 
-	if(daemon == "poll" || daemon == "all"){
-		msg += " - Performing seance for daemon 'poll'"
+	if(daemon == sPOLL || daemon == "all"){
 		Integer pollingInterval=getPollingInterval()
+		msg += " - Performing seance for daemon 'poll' interval ${pollingInterval}"
 		try {
-			if(unsched){ unschedule(pollScheduled) }
-			"runEvery${pollingInterval}Minute${pollingInterval!=1?'s':sBLANK}"(pollScheduled)
-			state.lastScheduledPoll= now() - (getMinMinsBtwPolls()*60000L)
-			state.lastScheduledPollDate=getTimestamp()
-			//updateLastPoll(true)
+			if(unsched){ unschedule('pollScheduled') }
+			"runEvery${pollingInterval}Minute${pollingInterval!=1?'s':sBLANK}"('pollScheduled')
+
+			//state.lastScheduledPoll= wnow() - (getMinMinsBtwPolls()*60000L)
+			//state.lastScheduledPollDate=getTimestamp()
 			if(unsched){ // Only poll now if we were recovering - otherwise whoever called will handle the poll (as in initialize())
 				if(debugLevelFour) LOG(msgH+msg+' calling pollScheduled', 4, sTRACE)
-				pollScheduled('spawnDaemon')
+				pollScheduled('spawnDaemon') // will call updateLastPoll(true)
 			}
 		} catch(Exception e){
 			msg += " - Exception when performing spawn for ${daemon}."
@@ -1361,7 +1562,7 @@ Boolean spawnDaemon(String daemon="all", Boolean unsched=true){
 			result=false
 			return result
 		}
-		state.lastScheduledWatchdog=now()
+		state.lastScheduledWatchdog=wnow()
 		state.lastScheduledWatchdogDate=getTimestamp()
 		//forceNextPoll()
 	}
@@ -1379,13 +1580,26 @@ Boolean spawnDaemon(String daemon="all", Boolean unsched=true){
 }
 
 
-void updateLastPoll(Boolean isScheduled=false){
+Long gtLastPollUpd(){
+	Long last
+	last= Math.max( ((Long)state.lastPollWS ?: 0L),
+				Math.max( ((Long)state.lastPoll ?: 0L), ((Long)state.lastScheduledPoll ?: 0L))
+	)
+}
+
+void updateLastPoll(Boolean isScheduled=false, Boolean isWS=false){
 	if(isScheduled){
-		state.lastScheduledPoll=now()
+		state.lastScheduledPoll=wnow()
 		state.lastScheduledPollDate=getTimestamp()
 	}else{
-		state.lastPoll=now()
-		state.lastPollDate=getTimestamp()
+		if(!isWS){
+			state.lastPoll=wnow()
+			state.lastPollDate=getTimestamp()
+
+		} else{
+			state.lastPollWS=wnow()
+			state.lastPollWSDate=getTimestamp()
+		}
 	}
 }
 
@@ -1413,14 +1627,15 @@ void pollFromChild(String deviceId=sBLANK,Boolean force=false){
 }
 
 Boolean pollChildren(String deviceId=sBLANK,Boolean force=false){
-	Boolean result=false
-	String msgH="pollChildren($deviceId, $force) | "
+	Boolean result
+	result=false
+	String msgH="pollChildren(device: $deviceId, force: $force) | "
 	// Prevent multiple concurrent poll cycles
 	if((Boolean)state.inPollChildren){
-		Long skipTime=(Long)state.skipTime ?: now()
+		Long skipTime=(Long)state.skipTime ?: wnow()
 		if((Long)state.skipTime != skipTime) state.skipTime=skipTime
 		// Give the already running poll 20/25 seconds to complete
-		if((now()-skipTime) < 25000L ){
+		if((wnow()-skipTime) < 25000L ){
 			// Already/still polling, capture the arguments and skip this poll request
 			if(force){
 				forceNextPoll()
@@ -1446,23 +1661,30 @@ Boolean pollChildren(String deviceId=sBLANK,Boolean force=false){
 
 	Boolean debugLevelFour=debugLevel(4)
 
-	Long last = Math.max(((Long)state.lastPoll ?: 0L), ((Long)state.lastScheduledPoll?: 0L))
-	Long aa=now() - last
-	Boolean tooSoon=(aa < (getMinMinsBtwPolls()*60000L))
-	if(tooSoon || debugLevelFour) {
-		LOG(msgH+"=====> state.lastPoll(${state.lastPoll}) now(${now()}) state.lastPollDate(${state.lastPollDate})", 2, sTRACE)
-		LOG(msgH+"=====> state.lastScheduledPoll(${state.lastScheduledPoll}) now(${now()}) state.lastScheduledPollDate(${state.lastScheduledPollDate})", 2, sTRACE)
-	}
+	Long last= gtLastPollUpd()
+
+	Long aa=wnow() - last
+	Long delta = (getMinMinsBtwPolls()*60000L) - aa
+	Boolean tooSoon=( delta > 60000L)
+
 	if(tooSoon){
-		LOG(msgH+"Too soon poll request, deferring...recent: ${aa/60000L} mins $last",2,sTRACE)
+
+		if(debugLevel(4)) {
+			LOG(msgH+"Too soon poll request, deferring...recent: ${aa/60000L} mins last: $last desired: ${getMinMinsBtwPolls()}",2,sTRACE)
+			LOG(msgH+"=====> state.lastPoll RUN (${state.lastPoll}) now(${wnow()}) state.lastPollDate(${state.lastPollDate})", 2, sTRACE)
+			LOG(msgH+"=====> state.lastScheduledPoll RUN (${state.lastScheduledPoll}) now(${wnow()}) state.lastScheduledPollDate(${state.lastScheduledPollDate})", 2, sTRACE)
+			LOG(msgH+"=====> state.lastPollWS RUN (${state.lastPollWS}) now(${wnow()}) state.lastPollWSDate(${state.lastPollWSDate})", 2, sTRACE)
+		}
+
 		state.inPollChildren=false
 		state.remove('inPollChildren')
-		runIn(85, poll, [overwrite: true]) // give time for command to complete; then get new status
+		Integer secs= Math.round(delta/1000L).toInteger() - 20
+		runIn(secs, sPOLL, [overwrite: true]) // give time for command to complete; then get new status
 		return result
 	}
 
 	// Start the new poll cycle
-	state.pollAutoConnectAPIStart=now()
+	state.pollAutoConnectAPIStart=wnow()
 //	if(debugLevelFour) LOG(msgH, 1, sTRACE)
 	Boolean forcePoll
 	//String mowersToPoll
@@ -1494,64 +1716,86 @@ Boolean pollChildren(String deviceId=sBLANK,Boolean force=false){
 			state.remove('inPollChildren')
 			return result
 		}
-		String apiConnection=apiConnected()
-		String slastPoll=(debugLevel(4)) ? "${apiConnection} @ ${state.lastScheduledPollDate}" : (apiConnection==sFULL) ? 'Succeeded' : (apiConnection==sWARN) ? 'Timed Out' : 'Failed'
 
-		((List<String>)settings.mowers)?.each {String mower ->
-			List<Map> flist=[]
-			Map srcMap=getMowerMap(mower)
-			if(srcMap) {
-				Boolean moving=(String)srcMap.attributes.mower.activity in [ 'MOWING', 'GOING_HOME', 'LEAVING' ]
-				Boolean onMain=(String)srcMap.attributes.mower.activity in [ 'CHARGING', 'PARKED_IN_CS' ]
-				Boolean stuck=( (String)srcMap.attributes.mower.activity in [ 'STOPPED_IN_GARDEN' ] ||
-					 (String)srcMap.attributes.mower.state in [ 'PAUSED', 'OFF', 'STOPPED', 'ERROR', 'FATAL_ERROR', 'ERROR_AT_POWER_UP' ] )
-				Boolean parked=( (String)srcMap.attributes.mower.activity in [ 'PARKED_IN_CS', 'CHARGING' ])
-				Boolean hold=( parked && (String)srcMap.attributes.mower.state in [ 'RESTRICTED' ])
-				Boolean holdIndefinite=( hold && srcMap.attributes.planner.nextStartTimestamp == 0)
-				Boolean holdUntilNext=( hold && srcMap.attributes.planner.nextStartTimestamp != 0)
-				String dbg=settings.debugLevel == null ? "2" : settings.debugLevel
+		result=updateMowerChildren()
 
-				flist << ['name':	(String)srcMap.attributes.system.name ] //STRING
-				flist << ['id':	srcMap.id ] //STRING
-				flist << ['model':	srcMap.attributes.system.model ] //STRING
-				flist << ['serialNumber':	srcMap.attributes.system.serialNumber.toString() ] //STRING
-				flist << ['mowerStatus':	srcMap.attributes.mower.mode ] //MAIN_AREA, SECONDARY_AREA, HOME, DEMO, UNKNOWN
-				flist << ['mowerActivity': srcMap.attributes.mower.activity] //UNKNOWN, NOT_APPLICABLE, MOWING, GOING_HOME, CHARGING, LEAVING, PARKED_IN_CS, STOPPED_IN_GARDEN
-				flist << ['mowerState':	srcMap.attributes.mower.state] //UNKNOWN, NOT_APPLICABLE, PAUSED, IN_OPERATION, WAIT_UPDATING, WAIT_POWER_UP, RESTRICTED,
-														// OFF, STOPPED, ERROR, FATAL_ERROR, ERROR_AT_POWER_UP
-				flist << ['mowerConnected':	srcMap.attributes.metadata.connected] // TRUE or FALSE
-				flist << ['mowerTimeStamp'	: srcMap.attributes.metadata.statusTimestamp] // LAST TIME connected (EPOCH LONG)
-				flist << ['battery': srcMap.attributes.battery.batteryPercent] // Battery %
-				flist << ['errorCode':	srcMap.attributes.mower.errorCode ] // STRING
-				flist << ['errorTimeStamp': srcMap.attributes.mower.errorCodeTimestamp] // (EPOCH LONG)
-				flist << ['plannerNextStart': srcMap.attributes.planner.nextStartTimestamp] // (EPOCH LONG)
-				flist << ['plannerOverride'	: srcMap.attributes.planner.override.action] // Override Action
-
-				flist << ['motion': moving ? 'active' : 'inactive']
-				flist << ['powerSource': onMain ? 'mains' : 'battery'] // "battery", "dc", "mains", "unknown"
-				flist << ['stuck': stuck]
-				flist << ['parked': parked]
-				flist << ['hold': hold]
-				flist << ['holdUntilNext': holdUntilNext]
-				flist << ['holdIndefinite': holdIndefinite]
-
-				flist << ['cuttingHeight': srcMap.attributes.settings.cuttingHeight] // Level
-				flist << ['headlight': srcMap.attributes.settings.headlight.mode]
-
-				flist << [apiConnected: apiConnection]
-				flist << [lastPoll: slastPoll]
-				flist << [debugLevel: dbg]
-
-				def chld=getChildDevice(mower)
-				if(chld) { chld.generateEvent(flist); result=true }
-				else LOG(msgH+'Child device $mower not found', 1, sWARN)
-			} else LOG(msgH+"no data from API for mower $mower", 3, sWARN)
-		}
 	} else { LOG(msgH+"no data",2,sWARN) }
 
 	state.inPollChildren=false
 	state.remove('inPollChildren')
 	return result
+}
+
+Boolean updateMowerChildren(){
+	String msgH="updateMowerChildren | "
+	Boolean result
+	result=false
+	((List<String>)settings.mowers)?.each {String mower ->
+		List<Map> flist=[]
+		Map srcMap=getMowerMap(mower)
+		if(srcMap) {
+			String dbg=settings.debugLevel == null ? "2" : settings.debugLevel
+			String apiConnection=apiConnected()
+			String slastPoll=(debugLevel(4)) ? "${apiConnection} @ ${state.lastScheduledPollDate}" : (apiConnection==sFULL) ? 'Succeeded' : (apiConnection==sWARN) ? 'Timed Out' : 'Failed'
+
+			Boolean moving=(String)srcMap.attributes.mower.activity in [ 'MOWING', 'GOING_HOME', 'LEAVING' ]
+			Boolean onMain=(String)srcMap.attributes.mower.activity in [ 'CHARGING', 'PARKED_IN_CS' ]
+			Boolean stuck=( (String)srcMap.attributes.mower.activity in [ 'STOPPED_IN_GARDEN' ] ||
+					(String)srcMap.attributes.mower.state in [ 'PAUSED', 'OFF', 'STOPPED', 'ERROR', 'FATAL_ERROR', 'ERROR_AT_POWER_UP' ] )
+			Boolean parked=( (String)srcMap.attributes.mower.activity in [ 'PARKED_IN_CS', 'CHARGING' ])
+			Boolean hold=( parked && (String)srcMap.attributes.mower.state in [ 'RESTRICTED' ])
+			Boolean holdIndefinite=( hold && srcMap.attributes.planner.nextStartTimestamp == 0)
+			Boolean holdUntilNext=( hold && srcMap.attributes.planner.nextStartTimestamp != 0)
+			def collisions
+			collisions = srcMap.attributes.statistics.numberofCollisions
+			if (collisions == null) collisions = 0
+
+			flist << ['name':	(String)srcMap.attributes.system.name ] //STRING
+			flist << ['id':	srcMap.id ] //STRING
+			flist << ['model':	srcMap.attributes.system.model ] //STRING
+			flist << ['serialNumber':	srcMap.attributes.system.serialNumber.toString() ] //STRING
+			flist << ['mowerStatus':	srcMap.attributes.mower.mode ] //MAIN_AREA, SECONDARY_AREA, HOME, DEMO, UNKNOWN
+			flist << ['mowerActivity': srcMap.attributes.mower.activity] //UNKNOWN, NOT_APPLICABLE, MOWING, GOING_HOME, CHARGING, LEAVING, PARKED_IN_CS, STOPPED_IN_GARDEN
+			flist << ['mowerState':	srcMap.attributes.mower.state] //UNKNOWN, NOT_APPLICABLE, PAUSED, IN_OPERATION, WAIT_UPDATING, WAIT_POWER_UP, RESTRICTED,
+			// OFF, STOPPED, ERROR, FATAL_ERROR, ERROR_AT_POWER_UP
+			flist << ['mowerConnected':	srcMap.attributes.metadata.connected] // TRUE or FALSE
+			flist << ['mowerTimeStamp'	: srcMap.attributes.metadata.statusTimestamp] // LAST TIME connected (EPOCH LONG)
+			flist << ['battery': srcMap.attributes.battery.batteryPercent] // Battery %
+			flist << ['errorCode':	srcMap.attributes.mower.errorCode ] // STRING
+			flist << ['errorTimeStamp': srcMap.attributes.mower.errorCodeTimestamp] // (EPOCH LONG)
+			flist << ['plannerNextStart': srcMap.attributes.planner.nextStartTimestamp] // (EPOCH LONG)
+			flist << ['plannerOverride'	: srcMap.attributes.planner.override.action] // Override Action
+
+			flist << ['motion': moving ? 'active' : 'inactive']
+			flist << ['powerSource': onMain ? 'mains' : 'battery'] // "battery", "dc", "mains", "unknown"
+			flist << ['stuck': stuck]
+			flist << ['parked': parked]
+			flist << ['hold': hold]
+			flist << ['holdUntilNext': holdUntilNext]
+			flist << ['holdIndefinite': holdIndefinite]
+
+			flist << ['cuttingHeight': srcMap.attributes.settings.cuttingHeight] // Level
+			flist << ['headlight': srcMap.attributes.settings.headlight.mode]
+
+			flist << ['cuttingBladeUsageTime' : srcMap.attributes.statistics.cuttingBladeUsageTime /3600]
+			flist << ['numberOfChargingCycles' : srcMap.attributes.statistics.numberOfChargingCycles]
+			flist << ['numberOfCollisions' : collisions]
+			flist << ['totalChargingTime' : srcMap.attributes.statistics.totalChargingTime /3600]
+			flist << ['totalCuttingTime' : srcMap.attributes.statistics.totalCuttingTime /3600]
+			flist << ['totalRunningTime' : srcMap.attributes.statistics.totalRunningTime /3600]
+			flist << ['totalSearchingTime' : srcMap.attributes.statistics.totalSearchingTime /3600]
+
+			flist << [apiConnected: apiConnection]
+			flist << [lastPoll: slastPoll]
+			flist << [debugLevel: dbg]
+
+			def chld=getChildDevice(mower)
+			if(chld) { chld.generateEvent(flist); result=true }
+			else LOG(msgH+'Child device $mower not found', 1, sWARN)
+		} else LOG(msgH+"no data from API for mower $mower", 3, sWARN)
+	}
+	return result
+
 }
 
 // This only updates a few states
@@ -1592,14 +1836,16 @@ void retryHelper() {
 // returns false if token is not valid
 Boolean refreshAuthToken(String meth, child=null){
 	String msgH="refreshAuthToken(${meth}, $child) | "
-	String msg=sBLANK
+	String msg
+	msg=sBLANK
 	Boolean debugLevelFour=debugLevel(4)
 //	if(debugLevelFour) LOG('Entered refreshAuthToken()', 4, sTRACE)
 
 	Long texp = (Long)state.authTokenExpires
 	String aT = atomicState.authToken
-	Long timeBeforeExpiry= texp && aT ? texp - now() : 0L
-	Boolean tokenStillGood=(timeBeforeExpiry > 2000L)
+	Long timeBeforeExpiry= texp && aT ? texp - wnow() : 0L
+	Boolean tokenStillGood
+	tokenStillGood=(timeBeforeExpiry > 2000L)
 	msg += "Token is ${tokenStillGood ? "valid" : "invalid"} | texp: ${texp} | timeBeforeExpiry: ${timeBeforeExpiry} | authToken: ${aT} | "
 
 	// check to see if token was recently refreshed
@@ -1662,10 +1908,10 @@ Boolean refreshAuthToken(String meth, child=null){
 
 					if(state.reAttempt) { state.reAttempt=0; state.remove('reAttempt') }
 					if(state.inTimeoutRetry){ state.inTimeoutRetry=0; state.remove('inTimeoutRetry') }
-					state.lastTokenRefresh=now()
+					state.lastTokenRefresh=wnow()
 					state.lastTokenRefreshDate=getTimestamp()
 
-					Long tt=(Long)now() + (ndata.expires_in * 1000)
+					Long tt=wnow() + (ndata.expires_in * 1000)
 					if(debugLevelFour){ // 4
 						msg += "Updated state.authTokenExpires=${tt} "
 						msg += "Refresh Token=state: ${rt} == in: ${ndata.refresh_token} "
@@ -1680,6 +1926,12 @@ Boolean refreshAuthToken(String meth, child=null){
 					atomicState.authToken=ndata.access_token
 					tokenStillGood=true
 
+					def dev= getSocketDevice()
+					if(dev){
+						dev.updateCookies(ndata.access_token)
+						if(!(Boolean)dev.isSocketActive()) { dev.triggerInitialize() }
+					}
+
 					LOG("refreshAuthToken() - Success! Token expires in ${String.format("%.2f",ndata.expires_in/60)} minutes", 3, sINFO, null, child) // 3
 
 					// Tell the children that we are once again connected to the AutoConnect API Cloud
@@ -1691,7 +1943,8 @@ Boolean refreshAuthToken(String meth, child=null){
 				}
 			}
 		} catch(e){
-			Integer maxAttempt=5
+			Integer maxAttempt
+			maxAttempt=5
 			if("${e}".contains("HttpResponseException")){
 				LOG(msgH+"HttpResponseException occurred. StatusCode: ${e.statusCode}", 1, sERROR, e, child)
 			} else if("${e}".contains("TimeoutException")){
@@ -1701,13 +1954,18 @@ Boolean refreshAuthToken(String meth, child=null){
 			} else {
 				LOG(msgH + "Not Sure of issue", 1, sERROR, e, child)
 			}
-			Integer attempts = (Integer)state.reAttempt
+			Integer attempts
+			attempts = (Integer)state.reAttempt
 			attempts= attempts!=null ? attempts+1 : 1
 			state.reAttempt=attempts
 			if(attempts > maxAttempt || timeBeforeExpiry < 1L){
 				state.authToken=sNULL
 				tokenStillGood=false
 				apiLost(msgH+"CLEARING AUTH TOKEN - Too many retries (${state.reAttempt - 1}) for token refresh, or expired auth token ${timeBeforeExpiry} ${state.authTokenExpires}")
+				def dev= getSocketDevice()
+				if(dev) {
+					dev.removeCookies(true)
+				}
 			}else{
 				LOG(msgH+"Setting up runIn for refreshAuthToken", 2, sTRACE, null, child) // 4
 				Integer retryFactor = attempts > 12 ? 12 : attempts
@@ -1727,15 +1985,17 @@ Boolean refreshAuthToken(String meth, child=null){
 //String getServerUrl()			{ return getFullApiServerUrl() }
 //String getShardUrl()			{ return getFullApiServerUrl()+"?access_token=${state.accessToken}" }
 
-void LOG(String message, Integer level=3, String logType=sDEBUG, ex=null, child=null, Boolean event=false, Boolean displayEvent=true){
+void LOG(String message, Integer level=3, String ilogType=sDEBUG, ex=null, child=null, Boolean event=false, Boolean displayEvent=true){
+	String logType
+	logType=ilogType
 	if(logType == sNULL) logType=sDEBUG
 
+	Integer dbgLevel=getIDebugLevel()
 	if(logType == sERROR){
 		String a=getTimestamp()
 		state.lastLOGerror="${message} @ "+a
 		state.LastLOGerrorDate=a
 	}else{
-		Integer dbgLevel=getIDebugLevel()
 		if(level > dbgLevel) return
 	}
 
@@ -1745,7 +2005,8 @@ void LOG(String message, Integer level=3, String logType=sDEBUG, ex=null, child=
 		logType=sDEBUG
 	}
 
-	String prefix=sBLANK
+	String prefix
+	prefix=sBLANK
 	if( dbgLevel == 5 ){ prefix='LOG: ' }
 	"log${logType}"("${prefix}${message}", ex)
 	if(event){ debugEvent(message, displayEvent) }
@@ -1775,7 +2036,8 @@ static String logPrefix(String msg, String color=sNULL){
 static String span(String str, String clr=sNULL, String sz=sNULL, Boolean bld=false, Boolean br=false){ return str ? "<span ${(clr || sz || bld) ? "style='${clr ? "color: ${clr};" : sBLANK}${sz ? "font-size: ${sz};" : sBLANK}${bld ? "font-weight: bold;" : sBLANK}'" : sBLANK}>${str}</span>${br ? sLINEBR : sBLANK}" : sBLANK }
 
 Integer getIDebugLevel(){
-	return (settings.debugLevel ?: 3) as Integer
+	String dbg=settings.debugLevel == null ? "2" : settings.debugLevel
+	return (dbg.toInteger())
 }
 
 Boolean debugLevel(Integer level=3){
@@ -1803,7 +2065,10 @@ Boolean notifyNowOK(){
 	return (modeOK && timeOK)
 }
 
-private static Boolean myTimeOfDayIsBetween(Date fromDate, Date toDate, Date checkDate)	{
+private static Boolean myTimeOfDayIsBetween(Date ifromDate, Date itoDate, Date checkDate)	{
+	Date fromDate,toDate
+	fromDate=ifromDate
+	toDate=itoDate
 	if(toDate == fromDate){
 		return false	// blocks the whole day
 	} else if(toDate < fromDate){
@@ -1821,21 +2086,23 @@ void sendMessage(String notificationMessage){
 	String msgH="sendMessage() | "
 	// notification is sent to remind user no more than once per hour
 	Long otsp=state.timeSendPush ?: null
-	Boolean sendNotification=!(otsp && ((now() - otsp) < 3600000))
+	Boolean sendNotification=!(otsp && ((wnow() - otsp) < 3600000))
 
-	String msg1=sendNotification ? "Sending" : "Not sending"
+	String msg1
+	msg1=sendNotification ? "Sending" : "Not sending"
 	msg1+=" Notification Message: ${notificationMessage}"
 	msg1+=" Last Notification Time: ${state.timeSendPush}"
 	LOG(msgH+msg1, 2, sTRACE)
 
 	if(sendNotification){
-		Long ntsp=otsp
+		Long ntsp
+		ntsp=otsp
 		String msgPrefix=state.appDisplayName + " at ${location.name}: "
 		String msg=msgPrefix + notificationMessage
 		Boolean addFrom=true // (msgPrefix && !msgPrefix.startsWith("From "))
 		if(settings.notifiers){
 			if( sendNotifications(msgPrefix, notificationMessage) ){
-				ntsp=now()
+				ntsp=wnow()
 			}
 		}
 		if((Boolean)settings.speak){
@@ -1844,14 +2111,14 @@ void sendMessage(String notificationMessage){
 					settings.speechDevices.each {
 						it.speak((addFrom?"From ":sBLANK) + msg )
 					}
-					ntsp=now()
+					ntsp=wnow()
 				}
 				if(settings.musicDevices != null){
 					settings.musicDevices.each {
 						it.setLevel( settings.volume )
 						it.playText((addFrom?"From ":sBLANK) + msg )
 					}
-					ntsp=now()
+					ntsp=wnow()
 				}
 			} else LOG(msgH+"speak/music notification restricted", 2, sTRACE)
 		}
@@ -1931,10 +2198,15 @@ void apiRestored(Boolean chkP=true){
 	state.lastScheduledPoll=null
 	if(chkP) checkPolls('apiRestored() ', true)
 	generateEventLocalParams() // Update the connection status
+
+	def dev= getSocketDevice()
+	if(dev){
+		if(!(Boolean)dev.isSocketActive()) { dev.triggerInitialize() }
+	}
 }
 
 Map getDebugDump(){
-	Map debugParams=[when:"${getTimestamp()}", whenEpoch:"${now()}",
+	Map debugParams=[when:"${getTimestamp()}", whenEpoch:"${wnow()}",
 				lastPollDate:"${state.lastScheduledPollDate}", lastScheduledPollDate:"${state.lastScheduledPollDate}",
 				lastScheduledWatchdogDate:"${state.lastScheduledWatchdogDate}",
 				lastTokenRefreshDate:"${state.lastTokenRefreshDate}",
@@ -1967,9 +2239,9 @@ void notifyApiLostHelper() {
 				LOG("apiLost() - notifying child: ${oneChild.device.displayName} of loss", 3, sERROR, null, oneChild)
 			}
 		}
-		unschedule(pollScheduled)
-		unschedule(scheduledWatchdog)
-		runEvery3Hours(notifyApiLost)
+		unschedule('pollScheduled')
+		unschedule('scheduledWatchdog')
+		runEvery3Hours('notifyApiLost')
 	}
 	notifyApiLost()
 }
@@ -1998,7 +2270,8 @@ void runEvery60Minutes(handler){
 
 void updateMyLabel(){
 	// Display connection status as part of the label...
-	String myLabel=(String)state.appDisplayName
+	String myLabel
+	myLabel=(String)state.appDisplayName
 	if((myLabel == null) || !app.label.startsWith(myLabel)){
 		myLabel=app.label
 		if(!myLabel.contains('<span')) state.appDisplayName=myLabel
@@ -2063,14 +2336,14 @@ static String getFormat(String type, String myText=sBLANK){
 	}
 }
 
-String getDtNow() {
+static String getDtNow() {
 	Date now=new Date()
 	return formatDt(now)
 }
 
-String formatDt(Date dt, Boolean tzChg=true) {
+static String formatDt(Date dt, Boolean tzChg=true) {
 	SimpleDateFormat tf=new SimpleDateFormat("E MMM dd HH:mm:ss z yyyy")
-	if(tzChg) { if(location.timeZone) { tf.setTimeZone((TimeZone)location?.timeZone) } }
+	if(tzChg) { if(mTZ()) { tf.setTimeZone(mTZ()) } }
 	return (String)tf.format(dt)
 }
 
@@ -2125,7 +2398,8 @@ Integer getLastTsValSecs(String val, Integer nullVal=1000000) {
 @Field volatile static Map<String,Map> serverDataMapFLD=[:]
 
 void updServerItem(String key, val) {
-	Map data=atomicState?.serverDataMap
+	Map data
+	data=atomicState?.serverDataMap
 	data=data ?: [:]
 	if(key) {
 		String appId=app.getId().toString()
@@ -2137,7 +2411,8 @@ void updServerItem(String key, val) {
 }
 
 void remServerItem(key) {
-	Map data=atomicState?.serverDataMap
+	Map data
+	data=atomicState?.serverDataMap
 	data=data ?: [:]
 	if(key) {
 		if(key instanceof List) {
@@ -2153,7 +2428,8 @@ void remServerItem(key) {
 
 def getServerItem(String key) {
 	String appId=app.getId().toString()
-	Map fdata=serverDataMapFLD[appId]
+	Map fdata
+	fdata=serverDataMapFLD[appId]
 	if(fdata == null) fdata=[:]
 	if(key) {
 		if(fdata[key] == null) {
@@ -2172,7 +2448,7 @@ Long GetTimeDiffSeconds(String lastDate, String sender=sNULL) {
 		if(lastDate?.contains("dtNow")) { return 10000 }
 		Date lastDt=Date.parse("E MMM dd HH:mm:ss z yyyy", lastDate)
 		Long start=lastDt.getTime()
-		Long stop=now()
+		Long stop=wnow()
 		Long diff= (Long)((stop - start) / 1000L)
 		return diff.abs()
 	} catch(ex) {
@@ -2189,3 +2465,6 @@ Long GetTimeDiffSeconds(String lastDate, String sender=sNULL) {
 @Field static final String sINFO		= 'info'
 @Field static final String sTRACE		= 'trace'
 @Field static final String sWARN		= 'warn'
+
+private Long wnow(){ return (Long)now() }
+private static TimeZone mTZ(){ return TimeZone.getDefault() } // (TimeZone)location.timeZone

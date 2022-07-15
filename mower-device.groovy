@@ -1,4 +1,6 @@
 /**
+ *	Automower Device  (Hubitat)
+ *
  *	Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *	in compliance with the License. You may obtain a copy of the License at:
  *
@@ -8,11 +10,11 @@
  *	on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
  *	for the specific language governing permissions and limitations under the License.
  *
- *  Modified June 16, 2022
+ *  Modified July 15, 2022
  */
 //file:noinspection unused
 
-static String getVersionNum()		{ return "00.00.02" }
+static String getVersionNum()		{ return "00.00.03" }
 static String getVersionLabel() 	{ return "Husqvarna AutoMower, version ${getVersionNum()}" }
 
 import groovy.transform.Field
@@ -75,6 +77,14 @@ metadata {
 		attribute 'holdUntilNext',	'STRING' // TRUE or FALSE
 		attribute 'holdIndefinite',	'STRING' // TRUE or FALSE
 
+		attribute 'cuttineBladeUsageTime', 'NUMBER'
+		attribute 'numberOfChargingCycles', 'NUMBER'
+		attribute 'numberOfCollisions', 'NUMBER'
+		attribute 'totalChargingTime', 'NUMBER'
+		attribute 'totalCuttingTime', 'NUMBER'
+		attribute 'totalRunningTime', 'NUMBER'
+		attribute 'totalSearchingTime', 'NUMBER'
+
 		command "start",		 		[[name: 'Duration*', type: 'NUMBER', description: 'Minutes']] // duration
 		command "pause", 				[]
 		command "parkuntilnext",		[] // until next schedule
@@ -98,14 +108,14 @@ def parse(String description) {
 
 def refresh(Boolean force=false) {
 	// No longer require forcePoll on every refresh - just get whatever has changed
-	LOG("refresh() - calling pollChildren ${force?(forced):sBLANK}, deviceId = ${getDeviceId()}",2,sINFO)
+	LOG("refresh() - calling pollChildren ${force?(force):sBLANK}, deviceId = ${getDeviceId()}",2,sINFO)
 	parent.pollFromChild(getDeviceId(), force) // tell parent to just poll me silently -- can't pass child/this for some reason
 }
 
 void doRefresh() {
 	// Pressing refresh within 6 seconds of the prior refresh completing will force a complete poll - otherwise changes only
-	refresh(state.lastDoRefresh?((now()-state.lastDoRefresh)<6000):false)
-	state.lastDoRefresh = now()	// reset the timer after the UI has been updated
+	refresh(state.lastDoRefresh?((wnow()-state.lastDoRefresh)<6000):false)
+	state.lastDoRefresh = wnow()	// reset the timer after the UI has been updated
 }
 
 def forceRefresh() {
@@ -127,6 +137,10 @@ def updated() {
 
 	if (device.displayName.contains('TestingForInstall')) { return }
 
+	state.remove('LastLOGerrorDate')
+	state.remove('lastLOGerror')
+	device.deleteCurrentState('debugEventFromParent')
+
 	state.version = getVersionLabel()
 	updateDataValue("myVersion", getVersionLabel())
 	runIn(2, 'forceRefresh', [overwrite: true])
@@ -143,110 +157,120 @@ def generateEvent(Map updates) {
 }
 
 def generateEvent(List<Map<String,Object>> updates) {
-	//log.debug "updates: $updates}"
+	//log.debug "updates: $updates"
 
 	String myVersion = getDataValue("myVersion")
 	if (!myVersion || (myVersion != getVersionLabel())) updated()
 	String msgH="generateEvent() | "
-	Long startMS = now()
+	Long startMS = wnow()
 	Boolean debugLevelFour = debugLevel(4)
 	if (debugLevelFour) LOG(msgH+"parsing data ${updates}",4, sTRACE)
 	//LOG("Debug level of parent: ${getParentSetting('debugLevel')}", 4, sDEBUG)
 //	String linkText = device.displayName
-	Boolean forceChange = false
+	Boolean forceChange
+	forceChange= false
 
-	Integer objectsUpdated = 0
+	Integer objectsUpdated
+	objectsUpdated= 0
 
 	if(updates) {
 		updates.each { Map<String,Object> update ->
 			update.each { String name, value ->
 				String sendValue = value.toString()
-				Boolean isChange = isStateChange(device, name, sendValue)
-				if(isChange) {
-					//def eventFront = [name: name, linkText: linkText, handlerName: name]
-					Map eventFront = [name: name ]
-					objectsUpdated++
-					Map event
-					if (debugLevelFour) LOG(msgH+"processing object #${objectsUpdated} name: ${name} value: "+sendValue, 5, sTRACE)
-					event = eventFront + [value: sendValue]
+				if(name!='id' && value!=null){
+					Boolean isChange = isStateChange(device, name, sendValue)
+					if(isChange) {
+						//def eventFront = [name: name, linkText: linkText, handlerName: name]
+						Map eventFront = [name: name ]
+						objectsUpdated++
+						Map event
+						if (debugLevelFour) LOG(msgH+"processing object #${objectsUpdated} name: ${name} value: "+sendValue, 5, sTRACE)
+						event = eventFront + [value: sendValue]
 
-					switch (name) {
-						case 'forced':
-							forceChange = (sendValue == 'true')
-							break
+						//noinspection GroovyFallthrough
+						switch (name) {
+							case 'forced':
+								forceChange = (sendValue == 'true')
+								break
 
-						case 'id':
-							state.id = sendValue
-							event = null
-							break
+							case 'id':
+								state.id = sendValue
+								event = null
+								break
 
-						case 'lastPoll':
-							if (debugLevelFour) event = eventFront + [value: sendValue, descriptionText: "Poll: " + sendValue ]
-							else event = null
-							break
-
-						case 'apiConnected':
-							// only display in the devices' log if we are in debug level 4 or 5
-							if (forceChange) event = eventFront + [value: sendValue, descriptionText: "API Connection is ${value}" ]
-							break
-
-						case 'debugEventFromParent':
-						case 'appdebug':
-							event = eventFront + [value: sendValue ] //, descriptionText: "-> ${sendValue}" ]
-							Integer ix = sendValue.lastIndexOf(" ")
-							String msg = sendValue.substring(0, ix)
-							String type = sendValue.substring(ix + 1).replaceAll("[()]", "")
-							switch (type) {
-								case sERROR:
-									LOG(msg,1,sERROR)
-									break
-								case sTRACE:
-									LOG(msg,1,sTRACE)
-									break
-								case sINFO:
-									LOG(msg,1,sINFO)
-									break
-								case sWARN:
-									LOG(msg,1,sWARN)
-									break
-								default:
-									LOG(msg,1,sDEBUG)
-							}
-							break
-
-						case 'debugLevel':
-							String sendText = (sendValue && (sendValue != 'null') && (sendValue != "")) ? sendValue : 'null'
-							updateDataValue('debugLevel', sendText)
-							event = eventFront + [value: sendText, descriptionText: "debugLevel is ${sendValue}" ]
-							break
-
-						default:
-							String desc = name + " is " + sendValue
-							if (name.endsWith("TimeStamp") || name.endsWith("NextStart")) {
-								if(sendValue != sNULL && sendValue != 'null' && sendValue != "0"){
-									Long t = sendValue.toLong()
-									Long n = now()
-									if (name.endsWith("NextStart")) {
-										t -= location.timeZone.getOffset(n) + Math.round(
-												(Integer)location.timeZone.getOffset(t)-(Integer)location.timeZone.getOffset(n)*1.0D )
-
-									}
-									Date aa = new Date(t)
-									desc = name + " is " + formatDt(aa)
+							case 'lastPoll':
+								if (debugLevelFour) event = eventFront + [value: sendValue, descriptionText: "Poll: " + sendValue ]
+								else{
+									event = null
+									device.deleteCurrentState(name)
 								}
-							}
-							event = eventFront + [value: sendValue, descriptionText: desc ]
-							break
-					}
-					if (event) {
-						if (debugLevelFour) LOG(msgH+"calling sendevent(${event})", 4, sTRACE)
-						sendEvent(event)
-					}
-				} else LOG(msgH+"${name} did not change", 5, sTRACE)
+								break
+
+							case 'apiConnected':
+								// only display in the devices' log if we are in debug level 4 or 5
+								if (forceChange) event = eventFront + [value: sendValue, descriptionText: "API Connection is ${value}" ]
+								break
+
+							case 'debugEventFromParent':
+							case 'appdebug':
+								event = eventFront + [value: sendValue ] //, descriptionText: "-> ${sendValue}" ]
+								Integer ix = sendValue.lastIndexOf(" ")
+								String msg = sendValue.substring(0, ix)
+								String type = sendValue.substring(ix + 1).replaceAll("[()]", "")
+								switch (type) {
+									case sERROR:
+										LOG(msg,1,sERROR)
+										break
+									case sTRACE:
+										LOG(msg,1,sTRACE)
+										break
+									case sINFO:
+										LOG(msg,1,sINFO)
+										break
+									case sWARN:
+										LOG(msg,1,sWARN)
+										break
+									default:
+										LOG(msg,1,sDEBUG)
+								}
+								break
+
+							case 'debugLevel':
+								String sendText = (sendValue && (sendValue != 'null') && (sendValue != "")) ? sendValue : 'null'
+								updateDataValue('debugLevel', sendText)
+								event = eventFront + [value: sendText, descriptionText: "debugLevel is ${sendValue}" ]
+								break
+
+							default:
+								String desc
+								desc = name + " is " + sendValue
+								if (name.endsWith("TimeStamp") || name.endsWith("NextStart")) {
+									if(sendValue != sNULL && sendValue != 'null' && sendValue != "0"){
+										Long t,n
+										t = sendValue.toLong()
+										n = wnow()
+										if (name.endsWith("NextStart")) {
+											t -= mTZ().getOffset(n) + Math.round(
+													mTZ().getOffset(t)-mTZ().getOffset(n)*1.0D )
+
+										}
+										Date aa = new Date(t)
+										desc = name + " is " + formatDt(aa)
+									}
+								}
+								event = eventFront + [value: sendValue, descriptionText: desc ]
+								break
+						}
+						if (event) {
+							if (debugLevelFour) LOG(msgH+"calling sendevent(${event})", 4, sTRACE)
+							sendEvent(event)
+						}
+					} else LOG(msgH+"${name} did not change", 5, sTRACE)
+				}
 			}
 		}
 	} else LOG(msgH+'NO UPDATES')
-	Long elapsed = now() - startMS
+	Long elapsed = wnow() - startMS
 	LOG(msgH+"Updated ${objectsUpdated} object${objectsUpdated!=1?'s':''} (${elapsed}ms)", 4, sINFO)
 }
 
@@ -261,8 +285,7 @@ void start(mins) {
 		if(parent.sendCmdToHusqvarna((String)state.id, foo)) {
 			LOG("start($mins) sent",4, sTRACE)
 		}
-	}
-	else LOG("start($mins) no minutes specified",1, sERROR)
+	} else LOG("start($mins) no minutes specified",1, sERROR)
 }
 
 void pause(){
@@ -315,8 +338,7 @@ void setCuttingHeight(level) {
 		if(parent.sendSettingToHusqvarna((String)state.id, foo)) {
 			LOG("setCuttingHeight($level) sent",4, sTRACE)
 		}
-	}
-	else LOG("setCuttingHeight($level) no level specified",1, sERROR)
+	} else LOG("setCuttingHeight($level) no level specified",1, sERROR)
 }
 
 void setHeadlightMode(mode) {
@@ -326,8 +348,7 @@ void setHeadlightMode(mode) {
 		if(parent.sendSettingToHusqvarna((String)state.id, foo)) {
 			LOG("setHeadlight($mode) sent",4, sTRACE)
 		}
-	}
-	else LOG("setHeadlight($mode) no mode specified",1, sERROR)
+	} else LOG("setHeadlight($mode) no mode specified",1, sERROR)
 }
 
 void setSchedule(taskList) {
@@ -337,8 +358,7 @@ void setSchedule(taskList) {
 		if(parent.sendScheduleToHusqvarna((String)state.id, foo)) {
 			LOG("setSchedule($taskList)",4, sTRACE)
 		}
-	}
-	else LOG("setSchedule missing input parameter(s)",1, sERROR)
+	} else LOG("setSchedule missing input parameter(s)",1, sERROR)
 }
 
 void off() {
@@ -350,15 +370,16 @@ void on() {
 	LOG('on()', 4, sTRACE)
 	resumeSchedule()
 }
+private static TimeZone mTZ(){ return TimeZone.getDefault() } // (TimeZone)location.timeZone
 
-String getDtNow() {
+static String getDtNow() {
 	Date now=new Date()
 	return formatDt(now)
 }
 
-String formatDt(Date dt, Boolean tzChg=true) {
+static String formatDt(Date dt, Boolean tzChg=true) {
 	SimpleDateFormat tf=new SimpleDateFormat("E MMM dd HH:mm:ss z yyyy")
-	if(tzChg) { if(location.timeZone) { tf.setTimeZone((TimeZone)location.timeZone) } }
+	if(tzChg) { if(mTZ()) { tf.setTimeZone(mTZ()) } }
 	return (String)tf.format(dt)
 }
 
@@ -447,3 +468,4 @@ def getParentSetting(String settingName) {
 @Field static final String sTRACE		= 'trace'
 @Field static final String sWARN		= 'warn'
 
+Long wnow() { return (Long)now() }

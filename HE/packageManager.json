@@ -1,13 +1,13 @@
 {
   "packageName": "Husqvarna AutoMower Manager",
   "author": "imnot_bob",
-  "version": "0.0.01",
+  "version": "0.0.03",
   "minimumHEVersion": "2.2.4",
   "licenseFile": "https://raw.githubusercontent.com/imnotbob/autoMower/master/LICENSE",
-  "releaseNotes": "Latest release for AutoMower support.",
+  "releaseNotes": "Latest release for AutoMower support. Adds webSocket support",
   "documentationLink": "https://wiki.webcore.co",
   "communityLink": "https://community.hubitat.com/t/husqvarna-automower-integration/76550",
-  "dateReleased": "2021-07-21",
+  "dateReleased": "2022-07-15",
   "apps": [
     {
       "id": "cb649f7b-d33d-82b9-82c3-79d1d2101fea",
@@ -20,6 +20,13 @@
     }
   ],
   "drivers": [
+    {
+      "id": "685948da-1eaa-4b25-8b5b-53872afb3b4f",
+      "name": "Husqvarna AutoMower WS",
+      "namespace": "imnotbob",
+      "location": "https://raw.githubusercontent.com/imnotbob/AutoMower/master/websocket-device.groovy",
+      "required": true
+    },
     {
       "id": "685948da-1ed7-4b25-8b5b-53872afb3b4f",
       "name": "Husqvarna AutoMower",
