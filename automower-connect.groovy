@@ -1470,6 +1470,10 @@ void checkPolls(String msgH, Boolean apiOk=true, Boolean frc=false){
 @Field static final Integer iWATCHDOGINTERVAL=10	// In minutes
 @Field static final Integer iREATTEMPTINTERVAL=30	// In seconds
 
+Integer gtPollingInterval(){
+	return ((settings?.pollingInterval!= null) ? settings.pollingInterval : 15) as Integer // in minutes
+}
+
 Boolean isDaemonAlive(String daemon="all", String msgI){
 	String msgH="isDaemonAlive(${daemon}, calledby: ${msgI}) | "
 	String msg
@@ -2172,10 +2176,6 @@ static String toJson(Map m){
 	return JsonOutput.toJson(m)
 } */
 
-Integer gtPollingInterval(){
-	return ((settings?.pollingInterval!= null) ? settings.pollingInterval : 15) as Integer
-}
-
 static String getTimestamp(){
 	return new Date().format("yyyy-MM-dd HH:mm:ss z")
 }
@@ -2202,15 +2202,16 @@ void apiRestored(Boolean chkP=true){
 }
 
 Map getDebugDump(){
-	Map debugParams=[when:"${getTimestamp()}", whenEpoch:"${wnow()}",
-					 lastPollDate:"${state.lastPollDate}",
-					 lastPollWSDate: state.lastPollWSDate,
-					 lastScheduledPollDate:"${state.lastScheduledPollDate}",
-				lastScheduledWatchdogDate:"${state.lastScheduledWatchdogDate}",
-				lastTokenRefreshDate:"${state.lastTokenRefreshDate}",
-				initializedEpoch:"${state.initializedEpoch}", initializedDate:"${state.initializedDate}",
-				lastLOGerror:"${state.lastLOGerror}", authTokenExpires:"${(Long)state.authTokenExpires}"
-			]
+	Map debugParams=[
+			when:"${getTimestamp()}", whenEpoch:"${wnow()}",
+			lastPollDate:"${state.lastPollDate}",
+			lastPollWSDate: state.lastPollWSDate,
+			lastScheduledPollDate:"${state.lastScheduledPollDate}",
+			lastScheduledWatchdogDate:"${state.lastScheduledWatchdogDate}",
+			lastTokenRefreshDate:"${state.lastTokenRefreshDate}",
+			initializedEpoch:"${state.initializedEpoch}", initializedDate:"${state.initializedDate}",
+			lastLOGerror:"${state.lastLOGerror}", authTokenExpires:"${(Long)state.authTokenExpires}"
+	]
 	return debugParams
 }
 

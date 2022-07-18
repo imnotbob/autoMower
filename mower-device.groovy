@@ -10,7 +10,7 @@
  *	on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
  *	for the specific language governing permissions and limitations under the License.
  *
- *  Modified July 15, 2022
+ *  Modified July 18, 2022
  */
 //file:noinspection unused
 
@@ -177,96 +177,97 @@ def generateEvent(List<Map<String,Object>> updates) {
 		updates.each { Map<String,Object> update ->
 			update.each { String name, value ->
 				String sendValue = value.toString()
-				if(name!='id' && value!=null){
-					Boolean isChange = isStateChange(device, name, sendValue)
-					if(isChange) {
-						//def eventFront = [name: name, linkText: linkText, handlerName: name]
-						Map eventFront = [name: name ]
-						objectsUpdated++
-						Map event
-						if (debugLevelFour) LOG(msgH+"processing object #${objectsUpdated} name: ${name} value: "+sendValue, 5, sTRACE)
-						event = eventFront + [value: sendValue]
+				Boolean isChange
+				isChange=false
+				if(!(name in ['id','forced']) && value!=null)
+					isChange = isStateChange(device, name, sendValue)
+				if(isChange || name in ['id','forced']) {
+					//def eventFront = [name: name, linkText: linkText, handlerName: name]
+					Map eventFront = [name: name ]
+					objectsUpdated++
+					Map event
+					if (debugLevelFour) LOG(msgH+"processing object #${objectsUpdated} name: ${name} value: "+sendValue, 5, sTRACE)
+					event = eventFront + [value: sendValue]
 
-						//noinspection GroovyFallthrough
-						switch (name) {
-							case 'forced':
-								forceChange = (sendValue == 'true')
-								break
+					//noinspection GroovyFallthrough
+					switch (name) {
+						case 'forced':
+							forceChange = (sendValue == 'true')
+							break
 
-							case 'id':
-								state.id = sendValue
+						case 'id':
+							state.id = sendValue
+							event = null
+							break
+
+						case 'lastPoll':
+							if (debugLevelFour) event = eventFront + [value: sendValue, descriptionText: "Poll: " + sendValue ]
+							else{
 								event = null
-								break
+								device.deleteCurrentState(name)
+							}
+							break
 
-							case 'lastPoll':
-								if (debugLevelFour) event = eventFront + [value: sendValue, descriptionText: "Poll: " + sendValue ]
-								else{
-									event = null
-									device.deleteCurrentState(name)
-								}
-								break
+						case 'apiConnected':
+							// only display in the devices' log if we are in debug level 4 or 5
+							if (forceChange) event = eventFront + [value: sendValue, descriptionText: "API Connection is ${value}" ]
+							break
 
-							case 'apiConnected':
-								// only display in the devices' log if we are in debug level 4 or 5
-								if (forceChange) event = eventFront + [value: sendValue, descriptionText: "API Connection is ${value}" ]
-								break
+						case 'debugEventFromParent':
+						case 'appdebug':
+							event = eventFront + [value: sendValue ] //, descriptionText: "-> ${sendValue}" ]
+							Integer ix = sendValue.lastIndexOf(" ")
+							String msg = sendValue.substring(0, ix)
+							String type = sendValue.substring(ix + 1).replaceAll("[()]", "")
+							switch (type) {
+								case sERROR:
+									LOG(msg,1,sERROR)
+									break
+								case sTRACE:
+									LOG(msg,1,sTRACE)
+									break
+								case sINFO:
+									LOG(msg,1,sINFO)
+									break
+								case sWARN:
+									LOG(msg,1,sWARN)
+									break
+								default:
+									LOG(msg,1,sDEBUG)
+							}
+							break
 
-							case 'debugEventFromParent':
-							case 'appdebug':
-								event = eventFront + [value: sendValue ] //, descriptionText: "-> ${sendValue}" ]
-								Integer ix = sendValue.lastIndexOf(" ")
-								String msg = sendValue.substring(0, ix)
-								String type = sendValue.substring(ix + 1).replaceAll("[()]", "")
-								switch (type) {
-									case sERROR:
-										LOG(msg,1,sERROR)
-										break
-									case sTRACE:
-										LOG(msg,1,sTRACE)
-										break
-									case sINFO:
-										LOG(msg,1,sINFO)
-										break
-									case sWARN:
-										LOG(msg,1,sWARN)
-										break
-									default:
-										LOG(msg,1,sDEBUG)
-								}
-								break
+						case 'debugLevel':
+							String sendText = (sendValue && (sendValue != 'null') && (sendValue != "")) ? sendValue : 'null'
+							updateDataValue('debugLevel', sendText)
+							event = eventFront + [value: sendText, descriptionText: "debugLevel is ${sendValue}" ]
+							break
 
-							case 'debugLevel':
-								String sendText = (sendValue && (sendValue != 'null') && (sendValue != "")) ? sendValue : 'null'
-								updateDataValue('debugLevel', sendText)
-								event = eventFront + [value: sendText, descriptionText: "debugLevel is ${sendValue}" ]
-								break
+						default:
+							String desc
+							desc = name + " is " + sendValue
+							if (name.endsWith("TimeStamp") || name.endsWith("NextStart")) {
+								if(sendValue != sNULL && sendValue != 'null' && sendValue != "0"){
+									Long t,n
+									t = sendValue.toLong()
+									n = wnow()
+									if (name.endsWith("NextStart")) {
+										t -= mTZ().getOffset(n) + Math.round(
+												mTZ().getOffset(t)-mTZ().getOffset(n)*1.0D )
 
-							default:
-								String desc
-								desc = name + " is " + sendValue
-								if (name.endsWith("TimeStamp") || name.endsWith("NextStart")) {
-									if(sendValue != sNULL && sendValue != 'null' && sendValue != "0"){
-										Long t,n
-										t = sendValue.toLong()
-										n = wnow()
-										if (name.endsWith("NextStart")) {
-											t -= mTZ().getOffset(n) + Math.round(
-													mTZ().getOffset(t)-mTZ().getOffset(n)*1.0D )
-
-										}
-										Date aa = new Date(t)
-										desc = name + " is " + formatDt(aa)
 									}
+									Date aa = new Date(t)
+									desc = name + " is " + formatDt(aa)
 								}
-								event = eventFront + [value: sendValue, descriptionText: desc ]
-								break
-						}
-						if (event) {
-							if (debugLevelFour) LOG(msgH+"calling sendevent(${event})", 4, sTRACE)
-							sendEvent(event)
-						}
-					} else LOG(msgH+"${name} did not change", 5, sTRACE)
-				}
+							}
+							event = eventFront + [value: sendValue, descriptionText: desc ]
+							break
+					}
+					if (event) {
+						if (debugLevelFour) LOG(msgH+"calling sendevent(${event})", 4, sTRACE)
+						sendEvent(event)
+					}
+				} else LOG(msgH+"${name} did not change", 5, sTRACE)
 			}
 		}
 	} else LOG(msgH+'NO UPDATES')
