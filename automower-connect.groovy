@@ -1544,7 +1544,10 @@ Boolean spawnDaemon(String idaemon="all", Boolean unsched=true){
 	result=true
 
 	if(daemon == sPOLL || daemon == "all"){
-		Integer pollingInterval=gtPollingInterval()
+		Integer pollingInterval
+		pollingInterval=gtPollingInterval()
+		//options:["6", "10", "15", "30", "60"])
+		if(pollingInterval>30) pollingInterval=60
 		msg += " - Performing seance for daemon 'poll' interval ${pollingInterval}"
 		try {
 			if(unsched){ unschedule('pollScheduled') }
