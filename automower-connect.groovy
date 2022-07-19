@@ -10,7 +10,7 @@
  *
  *	Husqvarna AutoMower
  *
- *  Modified July 17, 2022
+ *  Modified July 19, 2022
  *
  *  Instructions:
  *	Go to developer.husqvarnagroup.cloud
@@ -38,6 +38,15 @@ import java.text.SimpleDateFormat
 static String getVersionNum()		{ return "00.00.03" }
 static String getVersionLabel()		{ return "Husqvarna Automower Manager, version "+getVersionNum() }
 static String getMyNamespace()		{ return "imnotbob" }
+
+@Field static final Integer iWATCHDOGINTERVAL=10	// In minutes
+@Field static final Integer iREATTEMPTINTERVAL=30	// In seconds
+
+Integer gtPollingInterval(){
+	Integer interval= ((settings?.pollingInterval!= null) ? settings.pollingInterval : 15) as Integer // in minutes
+	Integer mult= getWWebSocketStatus() ? 8 : 1
+	return (interval * mult).toInteger()
+}
 
 Integer getMinMinsBtwPolls() {
 	Integer mult= getWWebSocketStatus() ? 20 : 1
@@ -493,7 +502,7 @@ def preferencesPage(){
 		}
 		section(title: sectionTitle("Configuration")){}
 		section(title: smallerTitle("Polling Interval")){
-			paragraph("How frequently do you want to poll the Husqvarna cloud for changes? For maximum responsiveness to commands, it is recommended to set this to 1 minute.", width: 8)
+			paragraph("How frequently do you want to poll the Husqvarna cloud for changes? (Default 15 mins)", width: 8)
 			paragraph(sBLANK, width: 4)
 			input(name: "pollingInterval", title:inputTitle("Select Polling Interval")+" (minutes)", type: sENUM, required:false, multiple:false, defaultValue:"15", description: "in Minutes", width: 4,
 					options:["6", "10", "15", "30", "60"])
@@ -522,7 +531,9 @@ def debugDashboardPage(){
 
 		section(sectionTitle("Settings Information")){
 			paragraph "debugLevel: ${getIDebugLevel()}"
-			paragraph "pollingInterval (Minutes): ${gtPollingInterval()}"
+			Integer interval= ((settings?.pollingInterval!= null) ? settings.pollingInterval : 15) as Integer // in minutes
+			paragraph "pollingInterval (Minutes): ${interval} actual: ${gtPollingInterval()}"
+			paragraph "webSocket Operating: ${getWWebSocketStatus()}"
 			paragraph "Selected Mowers: ${settings.mowers}"
 		}
 		section(sectionTitle("Dump of Debug Variables")){
@@ -1467,13 +1478,6 @@ void checkPolls(String msgH, Boolean apiOk=true, Boolean frc=false){
 	if(frc || !isDaemonAlive("watchdog", msgH)){ LOG(msgH+"rescheduling watchdog daemon",1,sTRACE); spawnDaemon("watchdog", !frc) }
 }
 
-@Field static final Integer iWATCHDOGINTERVAL=10	// In minutes
-@Field static final Integer iREATTEMPTINTERVAL=30	// In seconds
-
-Integer gtPollingInterval(){
-	return ((settings?.pollingInterval!= null) ? settings.pollingInterval : 15) as Integer // in minutes
-}
-
 Boolean isDaemonAlive(String daemon="all", String msgI){
 	String msgH="isDaemonAlive(${daemon}, calledby: ${msgI}) | "
 	String msg
@@ -1848,7 +1852,7 @@ Boolean refreshAuthToken(String meth, child=null){
 	msg += "Token is ${tokenStillGood ? "valid" : "invalid"} | texp: ${texp} | timeBeforeExpiry: ${timeBeforeExpiry} | authToken: ${aT} | "
 
 	// check to see if token was recently refreshed
-	Integer pollingIntrvMin=gtPollingInterval()+2
+	Integer pollingIntrvMin=(gtPollingInterval()+1)*2
 	if(timeBeforeExpiry > (pollingIntrvMin*60000L)){
 		msg += "exiting, token expires in ${timeBeforeExpiry/1000} seconds"
 		if(debugLevelFour) LOG(msgH+msg,4,sINFO)
