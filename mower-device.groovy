@@ -10,7 +10,7 @@
  *	on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
  *	for the specific language governing permissions and limitations under the License.
  *
- *  Modified July 18, 2022
+ *  Modified July 21, 2022
  */
 //file:noinspection unused
 
@@ -54,6 +54,7 @@ metadata {
 		attribute 'mowerTimeStamp',	'STRING' // LAST TIME connected (EPOCH LONG)
 		//attribute 'battery'		'NUMBER' // Battery %
 		attribute 'errorCode',		'STRING' // current error code
+		attribute 'errorCodeS',		'STRING' // current error code
 		attribute 'errorTimeStamp',	'NUMBER' // (EPOCH LONG)
 		attribute 'plannerNextStart',	'NUMBER' // (EPOCH LONG)
 		attribute 'plannerOverride',	'STRING' // Override Action
@@ -77,7 +78,7 @@ metadata {
 		attribute 'holdUntilNext',	'STRING' // TRUE or FALSE
 		attribute 'holdIndefinite',	'STRING' // TRUE or FALSE
 
-		attribute 'cuttineBladeUsageTime', 'NUMBER'
+		attribute 'cuttingBladeUsageTime', 'NUMBER'
 		attribute 'numberOfChargingCycles', 'NUMBER'
 		attribute 'numberOfCollisions', 'NUMBER'
 		attribute 'totalChargingTime', 'NUMBER'
@@ -436,6 +437,7 @@ void logexception(String msg, Exception ex=null, String typ, String clr) {
 	String msg1 = ex ? " Exception: ${ex}" : sBLANK
 	log."$typ" logPrefix(msg+msg1, clr)
 	String a
+	a= sNULL
 	try {
 		if(ex) a = getExceptionMessageWithLine(ex)
 	} catch (ignored){ }

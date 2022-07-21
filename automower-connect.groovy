@@ -10,7 +10,7 @@
  *
  *	Husqvarna AutoMower
  *
- *  Modified July 19, 2022
+ *  Modified July 21, 2022
  *
  *  Instructions:
  *	Go to developer.husqvarnagroup.cloud
@@ -726,10 +726,6 @@ void wsEvtHandler(Map evt){
 						}else{
 							if((String)it.key in ['calendar','positions','battery','mower','metadata','planner','statistics']){
 								ma[it.key]=it.value
-								if((String)it.key=='mower' && mowerLoc){
-									mowerLoc[dni]=((Map)it.value).activity
-									state.mowersLocation=  mowerLoc
-								}
 								didChg=true
 							}else{
 								LOG("wsEvtHandler NOT FOUND - type: ${typ} key: ${it.key} value: ${it.value}", 4, sDEBUG)
@@ -744,6 +740,10 @@ void wsEvtHandler(Map evt){
 			default:
 				LOG("wsEvtHandler NO MATCH - type: ${typ} evt: ${evt}", 4, sDEBUG)
 
+		}
+		if(fndMower && didChg && mowerLoc){
+			mowerLoc[dni]= getMowerLocation(mower)
+			state.mowersLocation=  mowerLoc
 		}
 	}else{
 		if(dni) LOG("wsEvtHandler NO mower or type - type: ${typ} mower: ${mower}", 4, sDEBUG)
@@ -1732,6 +1732,9 @@ Boolean pollChildren(String deviceId=sBLANK,Boolean force=false){
 	return result
 }
 
+/**
+ * Send data to mower device
+ */
 Boolean updateMowerChildren(){
 	String msgH="updateMowerChildren | "
 	Boolean result
@@ -1760,14 +1763,19 @@ Boolean updateMowerChildren(){
 			flist << ['id':	srcMap.id ] //STRING
 			flist << ['model':	srcMap.attributes.system.model ] //STRING
 			flist << ['serialNumber':	srcMap.attributes.system.serialNumber.toString() ] //STRING
-			flist << ['mowerStatus':	srcMap.attributes.mower.mode ] //MAIN_AREA, SECONDARY_AREA, HOME, DEMO, UNKNOWN
-			flist << ['mowerActivity': srcMap.attributes.mower.activity] //UNKNOWN, NOT_APPLICABLE, MOWING, GOING_HOME, CHARGING, LEAVING, PARKED_IN_CS, STOPPED_IN_GARDEN
-			flist << ['mowerState':	srcMap.attributes.mower.state] //UNKNOWN, NOT_APPLICABLE, PAUSED, IN_OPERATION, WAIT_UPDATING, WAIT_POWER_UP, RESTRICTED,
-			// OFF, STOPPED, ERROR, FATAL_ERROR, ERROR_AT_POWER_UP
 			flist << ['mowerConnected':	srcMap.attributes.metadata.connected] // TRUE or FALSE
 			flist << ['mowerTimeStamp'	: srcMap.attributes.metadata.statusTimestamp] // LAST TIME connected (EPOCH LONG)
 			flist << ['battery': srcMap.attributes.battery.batteryPercent] // Battery %
-			flist << ['errorCode':	srcMap.attributes.mower.errorCode ] // STRING
+
+			flist << ['mowerStatus':	srcMap.attributes.mower.mode ] //MAIN_AREA, SECONDARY_AREA, HOME, DEMO, UNKNOWN
+			flist << ['mowerActivity': srcMap.attributes.mower.activity] //UNKNOWN, NOT_APPLICABLE, MOWING, GOING_HOME, CHARGING, LEAVING, PARKED_IN_CS, STOPPED_IN_GARDEN
+			String mst= srcMap.attributes.mower.state //UNKNOWN, NOT_APPLICABLE, PAUSED, IN_OPERATION, WAIT_UPDATING, WAIT_POWER_UP, RESTRICTED,
+						// OFF, STOPPED, ERROR, FATAL_ERROR, ERROR_AT_POWER_UP
+			flist << ['mowerState':	mst]
+			Boolean hasErr = mst in [ 'ERROR', 'FATAL_ERROR', 'ERROR_AT_POWER_UP' ]
+			String errC=srcMap.attributes.mower.errorCode // STRING
+			flist << ['errorCode':	errC ] // STRING
+			flist << ['errorCodeS':	hasErr && errC!=sNULL && errCodes[errC]!=null ? errCodes[errC] : sBLANK ] // STRING
 			flist << ['errorTimeStamp': srcMap.attributes.mower.errorCodeTimestamp] // (EPOCH LONG)
 			flist << ['plannerNextStart': srcMap.attributes.planner.nextStartTimestamp] // (EPOCH LONG)
 			flist << ['plannerOverride'	: srcMap.attributes.planner.override.action] // Override Action
@@ -1830,6 +1838,155 @@ void generateEventLocalParams(){
 		getChildDevice(it)?.generateEvent(data)
 	}
 }
+
+@Field static Map<String,String> errCodes=[
+		"0":	"Unexpected error",
+		"1":	"Outside working area",
+		"2":	"No loop signal",
+		"3":	"Wrong loop signal",
+		"4":	"Loop sensor problem, front",
+		"5":	"Loop sensor problem, rear",
+		"6":	"Loop sensor problem, left",
+		"7":	"Loop sensor problem, right",
+		"8":	"Wrong PIN code",
+		"9":	"Trapped",
+		"10":	"Upside down",
+		"11":	"Low battery",
+		"12":	"Empty battery",
+		"13":	"No drive",
+		"14":	"Mower lifted",
+		"15":	"Lifted",
+		"16":	"Stuck in charging station",
+		"17":	"Charging station blocked",
+		"18":	"Collision sensor problem, rear",
+		"19":	"Collision sensor problem, front",
+		"20":	"Wheel motor blocked, right",
+		"21":	"Wheel motor blocked, left",
+		"22":	"Wheel drive problem, right",
+		"23":	"Wheel drive problem, left",
+		"24":	"Cutting system blocked",
+		"25":	"Cutting system blocked",
+		"26":	"Invalid sub-device combination",
+		"27":	"Settings restored",
+		"28":	"Memory circuit problem",
+		"29":	"Slope too steep",
+		"30":	"Charging system problem",
+		"31":	"STOP button problem",
+		"32":	"Tilt sensor problem",
+		"33":	"Mower tilted",
+		"34":	"Cutting stopped - slope too steep",
+		"35":	"Wheel motor overloaded, right",
+		"36":	"Wheel motor overloaded, left",
+		"37":	"Charging current too high",
+		"38":	"Electronic problem",
+		"39":	"Cutting motor problem",
+		"40":	"Limited cutting height range",
+		"41":	"Unexpected cutting height adj",
+		"42":	"Limited cutting height range",
+		"43":	"Cutting height problem, drive",
+		"44":	"Cutting height problem, curr",
+		"45":	"Cutting height problem, dir",
+		"46":	"Cutting height blocked",
+		"47":	"Cutting height problem",
+		"48":	"No response from charger",
+		"49":	"Ultrasonic problem",
+		"50":	"Guide 1 not found",
+		"51":	"Guide 2 not found",
+		"52":	"Guide 3 not found",
+		"53":	"GPS navigation problem",
+		"54":	"Weak GPS signal",
+		"55":	"Difficult finding home",
+		"56":	"Guide calibration accomplished",
+		"57":	"Guide calibration failed",
+		"58":	"Temporary battery problem",
+		"59":	"Temporary battery problem",
+		"60":	"Temporary battery problem",
+		"61":	"Temporary battery problem",
+		"62":	"Temporary battery problem",
+		"63":	"Temporary battery problem",
+		"64":	"Temporary battery problem",
+		"65":	"Temporary battery problem",
+		"66":	"Battery problem",
+		"67":	"Battery problem",
+		"68":	"Temporary battery problem",
+		"69":	"Alarm! Mower switched off",
+		"70":	"Alarm! Mower stopped",
+		"71":	"Alarm! Mower lifted",
+		"72":	"Alarm! Mower tilted",
+		"73":	"Alarm! Mower in motion",
+		"74":	"Alarm! Outside geofence",
+		"75":	"Connection changed",
+		"76":	"Connection NOT changed",
+		"77":	"Com board not available",
+		"78":	"Slipped - Mower has Slipped.Situation not solved with moving pattern",
+		"79":	"Invalid battery combination - Invalid combination of different battery types.",
+		"80":	"Cutting system imbalance	Warning",
+		"81":	"Safety function faulty",
+		"82":	"Wheel motor blocked, rear right",
+		"83":	"Wheel motor blocked, rear left",
+		"84":	"Wheel drive problem, rear right",
+		"85":	"Wheel drive problem, rear left",
+		"86":	"Wheel motor overloaded, rear right",
+		"87":	"Wheel motor overloaded, rear left",
+		"88":	"Angular sensor problem",
+		"89":	"Invalid system configuration",
+		"90":	"No power in charging station",
+		"91":	"Switch cord problem",
+		"92":	"Work area not valid",
+		"93":	"No accurate position from satellites",
+		"94":	"Reference station communication problem",
+		"95":	"Folding sensor activated",
+		"96":	"Right brush motor overloaded",
+		"97":	"Left brush motor overloaded",
+		"98":	"Ultrasonic Sensor 1 defect",
+		"99":	"Ultrasonic Sensor 2 defect",
+		"100":	"Ultrasonic Sensor 3 defect",
+		"101":	"Ultrasonic Sensor 4 defect",
+		"102":	"Cutting drive motor 1 defect",
+		"103":	"Cutting drive motor 2 defect",
+		"104":	"Cutting drive motor 3 defect",
+		"105":	"Lift Sensor defect",
+		"106":	"Collision sensor defect",
+		"107":	"Docking sensor defect",
+		"108":	"Folding cutting deck sensor defect",
+		"109":	"Loop sensor defect",
+		"110":	"Collision sensor error",
+		"111":	"No confirmed position",
+		"112":	"Cutting system major imbalance",
+		"113":	"Complex working area",
+		"114":	"Too high discharge current",
+		"115":	"Too high internal current",
+		"116":	"High charging power loss",
+		"117":	"High internal power loss",
+		"118":	"Charging system problem",
+		"119":	"Zone generator problem",
+		"120":	"Internal voltage error",
+		"121":	"High internal temerature",
+		"122":	"CAN error",
+		"123":	"Destination not reachable",
+		"124":	"Destination blocked",
+		"125":	"Battery needs replacement",
+		"126":	"Battery near end of life",
+		"127":	"Battery problem",
+		"701":	"Connectivity problem",
+		"702":	"Connectivity settings restored",
+		"703":	"Connectivity problem",
+		"704":	"Connectivity problem",
+		"705":	"Connectivity problem",
+		"706":	"Poor signal quality",
+		"707":	"SIM card requires PIN",
+		"708":	"SIM card locked",
+		"709":	"SIM card not found",
+		"710":	"SIM card locked",
+		"711":	"SIM card locked",
+		"712":	"SIM card locked",
+		"713":	"Geofence problem",
+		"714":	"Geofence problem",
+		"715":	"Connectivity problem",
+		"716":	"Connectivity problem",
+		"717": "SMS could not be sent",
+		"724": "Communication circuit board SW must be updated "
+]
 
 static String toQueryString(Map m){
 	return m.collect { k, v -> "${k}=${URLEncoder.encode(v.toString())}" }.sort().join("&")
@@ -2266,7 +2423,7 @@ void notifyApiLost(){
 }
 
 void runEvery6Minutes(handler){
-	Integer randomSeconds=randomSeed.nextInt(59)
+	Integer randomSeconds=randomSeed.nextInt(49) + 10
 	schedule("${randomSeconds} 0/6 * * * ?", handler)
 }
 
