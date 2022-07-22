@@ -197,6 +197,7 @@ def generateEvent(List<Map<String,Object>> updates) {
 							break
 
 						case 'id':
+							if(state.id==sendValue) objectsUpdated--
 							state.id = sendValue
 							event = null
 							break

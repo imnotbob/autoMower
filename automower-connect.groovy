@@ -156,19 +156,28 @@ void initialize(){
 	state.numAvailMowers=0
 	state.mowerData=[:]
 
+	if(!(Boolean)state.initialized){
+		state.initialized=true
+		// These two below are for debugging and statistics purposes
+		state.initializedEpoch=wnow()
+		state.initializedDate=getDtNow() // getTimeStamp
+	}
+
 	Map myMowers
 	myMowers=null
-	if((Boolean)state.initialized){
-		myMowers=getAutoMowers(true, "initialize")
-	}
+	clearLastPolls()
+	myMowers=getAutoMowers(true, "initialize")
 	Boolean apiOk=(myMowers!=null)
 
 	// Create children, This should only be needed during initial setup and when mowers or sensors are added or removed.
 	Boolean aOK
 	aOK=apiOk
 	aOK=(aOK && ((List<String>)settings.mowers)?.size() > 0)
-	if(aOK) { aOK=createChildrenMowers() }
+	if(aOK) aOK=createChildrenMowers()
 	if(aOK) deleteUnusedChildren()
+
+	if(aOK && myMowers)
+		Boolean a=updateMowerChildren()
 
 	subscribe(location, "systemStart", rebooted)					// re-initialize if the hub reboots
 
@@ -183,20 +192,13 @@ void initialize(){
 	// Schedule the various handlers
 	checkPolls('initialize() ', apiOk, true)
 
-	if(!(Boolean)state.initialized){
-		state.initialized=true
-		// These two below are for debugging and statistics purposes
-		state.initializedEpoch=wnow()
-		state.initializedDate=getDtNow() // getTimeStamp
-	}
-
 	//send activity feeds to tell devices connection status
 	String notificationMessage=aOK ? "is connected" : (apiOk ? "had an error during setup of devices" : "api not connected")
 
 	LOG("${getVersionLabel()} - initialization complete "+notificationMessage,2,sDEBUG)
 	if(!state.versionLabel) state.versionLabel=getVersionLabel()
-	if(aOK) runIn(8, sPOLL, [overwrite: true])
 	chkRestartSocket(true)
+	if(aOK) runIn(8, sPOLL, [overwrite: true])
 }
 
 void rebooted(evt){
@@ -233,9 +235,7 @@ def mainPage(){
 				paragraph(getFormat("warning", "You are no longer connected to the Husqvarna API. Please re-Authorize below."))
 			}
 			def dev= getSocketDevice()
-			if(dev) {
-				dev.removeCookies(true)
-			}
+			if(dev) dev.removeCookies(true)
 		}
 
 		if((String)state.authToken && !(Boolean)state.initialized){
@@ -1116,6 +1116,7 @@ Map<String,String> getAutoMowers(Boolean frc=false, String meth="followup", Bool
 					}
 					state.mowerData=mdata
 					//log.debug "resp: ${state.mowerData}"
+					updateLastPoll(false)
 				}else{
 					LOG(msgH + "httpGet() in else: http status: ${resp.status}", 1, sTRACE)
 					//refresh the auth token
@@ -1371,7 +1372,7 @@ static String cleanAppName(String name){
 	return sNULL
 }
 
-// NOTE: For this to work correctly getAutoMowers()
+// NOTE: For this to work correctly
 void deleteUnusedChildren(){
 	LOG("deleteUnusedChildren() entered", 5, sTRACE)
 
@@ -1415,10 +1416,8 @@ void scheduledWatchdog(evt=null, Boolean local=false, String meth="schedule/runi
 
 	// Check to see if we have called too soon
 	if(!state.lastScheduledWatchdog){
-		state.lastScheduledWatchdog=wnow() - 3600001L
-		oldLast=state.lastScheduledWatchdog
-		state.lastScheduledWatchdogDate=sNULL
-		oldLastS=state.lastScheduledWatchdogDate
+		oldLast= wnow() - 3600001L
+		oldLastS= sNULL
 	}
 
 	state.lastScheduledWatchdog=wnow()
@@ -1519,13 +1518,14 @@ Map checkT(String typ, Long lVal, Integer intervalMins){
 	Boolean result
 	result=true
 	Long lastScheduled=lVal
-	Long timeSinceLastMins=!lastScheduled ? 1000L : ((wnow() - lastScheduled) / 60000)
+	Long timeSinceLastMins=!lastScheduled ? 1000L : Math.round(((wnow() - lastScheduled) / 60000))
 	String msg
 	msg=sBLANK
 	msg += "Checking daemon ${typ} | "
 	msg += "Time since last ${timeSinceLastMins} mins -- lastScheduled == ${lastScheduled} | "
 
-	if( timeSinceLastMins >= (intervalMins + getMinMinsBtwPolls() + 2)) result=false
+	Integer maxPoll= Math.max(intervalMins,getMinMinsBtwPolls())
+	if( timeSinceLastMins >= maxPoll+2) result=false
 	msg += !result ? "NOT RUNNING | " : sBLANK
 	return [res: result, msg: msg]
 }
@@ -1598,6 +1598,13 @@ Long gtLastDataUpd(){
 					((Long)state.lastPoll ?: 0L) )
 }
 
+void clearLastPolls(){
+	state.remove('lastPoll')
+	state.remove('lastPollDate')
+	state.remove('lastPollWS')
+	state.remove('lastPollWSDate')
+}
+
 void updateLastPoll(Boolean isWS=false){
 	if(!isWS){
 		state.lastPoll=wnow()
@@ -1609,9 +1616,9 @@ void updateLastPoll(Boolean isWS=false){
 	}
 }
 
-void poll(){
+void poll(Boolean isSched=false){
 	LOG("poll()", 3, sTRACE)
-	if(pollChildren()) updateLastPoll(false)
+	Boolean a= pollChildren(sNULL,false,isSched)
 }
 
 // Called by scheduled() event handler
@@ -1619,7 +1626,7 @@ void pollScheduled(String caller="runIn/Schedule"){
 	LOG("pollScheduled(caller: $caller)", 3, sTRACE)
 	state.lastScheduledPoll=wnow()
 	state.lastScheduledPollDate=getTimestamp()
-	poll()
+	poll(true)
 }
 
 void forceNextPoll(){
@@ -1631,10 +1638,10 @@ void forceNextPoll(){
 // what child devices call on refresh()
 void pollFromChild(String deviceId=sBLANK,Boolean force=false){
 	LOG("pollFromChild()", 3, sTRACE)
-	if(pollChildren(deviceId, force)) updateLastPoll(false)
+	Boolean a= pollChildren(deviceId, force,false)
 }
 
-Boolean pollChildren(String deviceId=sBLANK,Boolean force=false){
+Boolean pollChildren(String deviceId=sBLANK,Boolean force=false, Boolean isSched=true){
 	Boolean result
 	result=false
 	String msgH="pollChildren(device: $deviceId, force: $force) | "
@@ -1645,9 +1652,8 @@ Boolean pollChildren(String deviceId=sBLANK,Boolean force=false){
 		// Give the already running poll 20/25 seconds to complete
 		if((wnow()-skipTime) < 25000L ){
 			// Already/still polling, capture the arguments and skip this poll request
-			if(force){
-				forceNextPoll()
-			}
+			if(force) forceNextPoll()
+
 			LOG(msgH+"prior poll not finished, skipping...")
 			return result
 		}
@@ -1672,13 +1678,14 @@ Boolean pollChildren(String deviceId=sBLANK,Boolean force=false){
 	Long last= gtLastDataUpd()
 
 	Long aa=wnow() - last
-	Long delta= (getMinMinsBtwPolls()*60000L) - aa
+	Integer minPoll= isSched ? Math.max(gtPollingInterval(),getMinMinsBtwPolls()) : Math.min(gtPollingInterval(),getMinMinsBtwPolls())
+	Long delta= (minPoll*60000L) - aa
 	Boolean tooSoon=( delta > 60000L)
 
 	if(tooSoon){
 
 		if(debugLevel(4)) {
-			LOG(msgH+"Too soon poll request, deferring...recent: ${aa/60000L} mins last: $last desired: ${getMinMinsBtwPolls()}",2,sTRACE)
+			LOG(msgH+"Too soon poll request, deferring...recent: ${aa/60000L} mins last: $last desired: ${minPoll}",2,sTRACE)
 			LOG(msgH+"=====> state.lastPoll RUN (${state.lastPoll}) now(${wnow()}) state.lastPollDate(${state.lastPollDate})", 2, sTRACE)
 //			LOG(msgH+"=====> state.lastScheduledPoll RUN (${state.lastScheduledPoll}) now(${wnow()}) state.lastScheduledPollDate(${state.lastScheduledPollDate})", 2, sTRACE)
 			LOG(msgH+"=====> state.lastPollWS RUN (${state.lastPollWS}) now(${wnow()}) state.lastPollWSDate(${state.lastPollWSDate})", 2, sTRACE)
@@ -1702,7 +1709,7 @@ Boolean pollChildren(String deviceId=sBLANK,Boolean force=false){
 		state.updatesLog=updatesLog
 	}
 	Boolean forcePoll
-	forcePoll=updatesLog.forcePoll
+	forcePoll=(Boolean)updatesLog.forcePoll
 
 	if(weAreLost(msgH, 'pollChildren')){
 		state.inPollChildren=false
@@ -1834,7 +1841,7 @@ void generateEventLocalParams(){
 	}
 
 	// Iterate over all the children
-	((List<String>)settings.mowers)?.each {
+	((List<String>)settings.mowers)?.each { String it ->
 		getChildDevice(it)?.generateEvent(data)
 	}
 }
