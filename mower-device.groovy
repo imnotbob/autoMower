@@ -10,11 +10,11 @@
  *	on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
  *	for the specific language governing permissions and limitations under the License.
  *
- *  Modified July 21, 2022
+ *  Modified July 24, 2022
  */
 //file:noinspection unused
 
-static String getVersionNum()		{ return "00.00.03" }
+static String getVersionNum()		{ return "00.00.04" }
 static String getVersionLabel() 	{ return "Husqvarna AutoMower, version ${getVersionNum()}" }
 
 import groovy.transform.Field
@@ -28,7 +28,7 @@ import java.text.SimpleDateFormat
 @Field static final String sCLRORG	= 'orange'
 @Field static final String sLINEBR	= '<br>'
 
-metadata {
+metadata{
 	definition (
 		name:			"Husqvarna AutoMower",
 		namespace:		"imnotbob",
@@ -97,131 +97,131 @@ metadata {
 		command "setSchedule",			[[name: 'taskList*', type: 'STRING', description: 'Task List']]
 	}
 
-	preferences {
+	preferences{
 		input(name: "dummy", type: "text", title: "${getVersionLabel()}", description: " ", required: false)
 	}
 }
 
 // parse events into attributes
-def parse(String description) {
+def parse(String description){
 	LOG("parse() --> Parsing ${description}", 4, sTRACE)
 }
 
-def refresh(Boolean force=false) {
+def refresh(Boolean force=false){
 	// No longer require forcePoll on every refresh - just get whatever has changed
-	LOG("refresh() - calling pollChildren ${force?(force):sBLANK}, deviceId = ${getDeviceId()}",2,sINFO)
+	LOG("refresh() - calling pollChildren ${force?(force):sBLANK}, deviceId= ${getDeviceId()}",2,sINFO)
 	parent.pollFromChild(getDeviceId(), force) // tell parent to just poll me silently -- can't pass child/this for some reason
 }
 
-void doRefresh() {
+void doRefresh(){
 	// Pressing refresh within 6 seconds of the prior refresh completing will force a complete poll - otherwise changes only
 	refresh(state.lastDoRefresh?((wnow()-state.lastDoRefresh)<6000):false)
-	state.lastDoRefresh = wnow()	// reset the timer after the UI has been updated
+	state.lastDoRefresh= wnow()	// reset the timer after the UI has been updated
 }
 
-def forceRefresh() {
+def forceRefresh(){
 	refresh(true)
 }
 
-def installed() {
+def installed(){
 	LOG("${device.label} being installed",2,sINFO)
-	if (device.label?.contains('TestingForInstall')) return	// we're just going to be deleted in a second...
+	if(device.label?.contains('TestingForInstall')) return	// we're just going to be deleted in a second...
 	updated()
 }
 
-def uninstalled() {
+def uninstalled(){
 	LOG("${device.label} being uninstalled",2,sINFO)
 }
 
-def updated() {
+def updated(){
 	LOG("${getVersionLabel()} updated",1,sTRACE)
 
-	if (device.displayName.contains('TestingForInstall')) { return }
+	if(device.displayName.contains('TestingForInstall')){ return }
 
 	state.remove('LastLOGerrorDate')
 	state.remove('lastLOGerror')
 	device.deleteCurrentState('debugEventFromParent')
 
-	state.version = getVersionLabel()
+	state.version= getVersionLabel()
 	updateDataValue("myVersion", getVersionLabel())
 	runIn(2, 'forceRefresh', [overwrite: true])
 }
 
-def poll() {
+def poll(){
 	LOG("Executing 'poll' using parent App", 2, sINFO)
 	parent.pollFromChild(getDeviceId(), false) // tell parent to just poll me silently -- can't pass child/this for some reason
 }
 
-def generateEvent(Map updates) {
+def generateEvent(Map updates){
 	//log.error "generateEvent(Map): ${updates}"
 	generateEvent([updates])
 }
 
-def generateEvent(List<Map<String,Object>> updates) {
+def generateEvent(List<Map<String,Object>> updates){
 	//log.debug "updates: $updates"
 
-	String myVersion = getDataValue("myVersion")
-	if (!myVersion || (myVersion != getVersionLabel())) updated()
+	String myVersion= getDataValue("myVersion")
+	if(!myVersion || (myVersion != getVersionLabel())) updated()
 	String msgH="generateEvent() | "
-	Long startMS = wnow()
-	Boolean debugLevelFour = debugLevel(4)
-	if (debugLevelFour) LOG(msgH+"parsing data ${updates}",4, sTRACE)
+	Long startMS= wnow()
+	Boolean debugLevelFour= debugLevel(4)
+	if(debugLevelFour) LOG(msgH+"parsing data ${updates}",4, sTRACE)
 	//LOG("Debug level of parent: ${getParentSetting('debugLevel')}", 4, sDEBUG)
-//	String linkText = device.displayName
+//	String linkText= device.displayName
 	Boolean forceChange
 	forceChange= false
 
 	Integer objectsUpdated
 	objectsUpdated= 0
 
-	if(updates) {
-		updates.each { Map<String,Object> update ->
-			update.each { String name, value ->
-				String sendValue = value.toString()
+	if(updates){
+		updates.each{ Map<String,Object> update ->
+			update.each{ String name, value ->
+				String sendValue= value.toString()
 				Boolean isChange
 				isChange=false
 				if(!(name in ['id','forced']) && value!=null)
-					isChange = isStateChange(device, name, sendValue)
-				if(isChange || name in ['id','forced']) {
-					//def eventFront = [name: name, linkText: linkText, handlerName: name]
-					Map eventFront = [name: name ]
+					isChange= isStateChange(device, name, sendValue)
+				if(isChange || name in ['id','forced']){
+					//def eventFront= [name: name, linkText: linkText, handlerName: name]
+					Map eventFront= [name: name ]
 					objectsUpdated++
 					Map event
-					if (debugLevelFour) LOG(msgH+"processing object #${objectsUpdated} name: ${name} value: "+sendValue, 5, sTRACE)
-					event = eventFront + [value: sendValue]
+					if(debugLevelFour) LOG(msgH+"processing object #${objectsUpdated} name: ${name} value: "+sendValue, 5, sTRACE)
+					event= eventFront + [value: sendValue]
 
 					//noinspection GroovyFallthrough
-					switch (name) {
+					switch (name){
 						case 'forced':
-							forceChange = (sendValue == 'true')
+							forceChange= (sendValue == 'true')
 							break
 
 						case 'id':
 							if(state.id==sendValue) objectsUpdated--
-							state.id = sendValue
-							event = null
+							state.id= sendValue
+							event= null
 							break
 
 						case 'lastPoll':
-							if (debugLevelFour) event = eventFront + [value: sendValue, descriptionText: "Poll: " + sendValue ]
+							if(debugLevelFour) event= eventFront + [value: sendValue, descriptionText: "Poll: " + sendValue ]
 							else{
-								event = null
+								event= null
 								device.deleteCurrentState(name)
 							}
 							break
 
 						case 'apiConnected':
 							// only display in the devices' log if we are in debug level 4 or 5
-							if (forceChange) event = eventFront + [value: sendValue, descriptionText: "API Connection is ${value}" ]
+							if(forceChange) event= eventFront + [value: sendValue, descriptionText: "API Connection is ${value}" ]
 							break
 
 						case 'debugEventFromParent':
 						case 'appdebug':
-							event = eventFront + [value: sendValue ] //, descriptionText: "-> ${sendValue}" ]
-							Integer ix = sendValue.lastIndexOf(" ")
-							String msg = sendValue.substring(0, ix)
-							String type = sendValue.substring(ix + 1).replaceAll("[()]", "")
-							switch (type) {
+							event= eventFront + [value: sendValue ] //, descriptionText: "-> ${sendValue}" ]
+							Integer ix= sendValue.lastIndexOf(" ")
+							String msg= sendValue.substring(0, ix)
+							String type= sendValue.substring(ix + 1).replaceAll("[()]", "")
+							switch (type){
 								case sERROR:
 									LOG(msg,1,sERROR)
 									break
@@ -240,40 +240,40 @@ def generateEvent(List<Map<String,Object>> updates) {
 							break
 
 						case 'debugLevel':
-							String sendText = (sendValue && (sendValue != 'null') && (sendValue != "")) ? sendValue : 'null'
+							String sendText= (sendValue && (sendValue != 'null') && (sendValue != "")) ? sendValue : 'null'
 							updateDataValue('debugLevel', sendText)
-							event = eventFront + [value: sendText, descriptionText: "debugLevel is ${sendValue}" ]
+							event= eventFront + [value: sendText, descriptionText: "debugLevel is ${sendValue}" ]
 							break
 
 						default:
 							String desc
-							desc = name + " is " + sendValue
-							if (name.endsWith("TimeStamp") || name.endsWith("NextStart")) {
+							desc= name + " is " + sendValue
+							if(name.endsWith("TimeStamp") || name.endsWith("NextStart")){
 								if(sendValue != sNULL && sendValue != 'null' && sendValue != "0"){
 									Long t,n
-									t = sendValue.toLong()
-									n = wnow()
-									if (name.endsWith("NextStart")) {
+									t= sendValue.toLong()
+									n= wnow()
+									if(name.endsWith("NextStart")){
 										t -= mTZ().getOffset(n) + Math.round(
 												mTZ().getOffset(t)-mTZ().getOffset(n)*1.0D )
 
 									}
-									Date aa = new Date(t)
-									desc = name + " is " + formatDt(aa)
+									Date aa= new Date(t)
+									desc= name + " is " + formatDt(aa)
 								}
 							}
-							event = eventFront + [value: sendValue, descriptionText: desc ]
+							event= eventFront + [value: sendValue, descriptionText: desc ]
 							break
 					}
-					if (event) {
-						if (debugLevelFour) LOG(msgH+"calling sendevent(${event})", 4, sTRACE)
+					if(event){
+						if(debugLevelFour) LOG(msgH+"calling sendevent(${event})", 4, sTRACE)
 						sendEvent(event)
 					}
 				} else LOG(msgH+"${name} did not change", 5, sTRACE)
 			}
 		}
 	} else LOG(msgH+'NO UPDATES')
-	Long elapsed = wnow() - startMS
+	Long elapsed= wnow() - startMS
 	LOG(msgH+"Updated ${objectsUpdated} object${objectsUpdated!=1?'s':''} (${elapsed}ms)", 4, sINFO)
 }
 
@@ -281,11 +281,11 @@ def generateEvent(List<Map<String,Object>> updates) {
 // commands
 // API calls and UI handling
 // ***************************************************************************
-void start(mins) {
-	if(mins) {
+void start(mins){
+	if(mins){
 		LOG("start($mins)", 3, sTRACE)
-		Map foo = [data:[type:'Start',attributes:[duration:mins]]]
-		if(parent.sendCmdToHusqvarna((String)state.id, foo)) {
+		Map foo= [data:[type:'Start',attributes:[duration:mins]]]
+		if(parent.sendCmdToHusqvarna((String)state.id, foo)){
 			LOG("start($mins) sent",4, sTRACE)
 		}
 	} else LOG("start($mins) no minutes specified",1, sERROR)
@@ -293,101 +293,101 @@ void start(mins) {
 
 void pause(){
 	LOG("pause",3, sTRACE)
-	Map foo = [data:[type:'Pause']]
-	if(parent.sendCmdToHusqvarna((String)state.id, foo)) {
+	Map foo= [data:[type:'Pause']]
+	if(parent.sendCmdToHusqvarna((String)state.id, foo)){
 		LOG("pause sent",4, sTRACE)
 	}
 }
 
-void parkuntilnext() {
+void parkuntilnext(){
 	LOG("parkuntilnext()", 3, sTRACE)
-	Map foo = [data:[type:'ParkUntilNextSchedule']]
-	if(parent.sendCmdToHusqvarna((String)state.id, foo)) {
+	Map foo= [data:[type:'ParkUntilNextSchedule']]
+	if(parent.sendCmdToHusqvarna((String)state.id, foo)){
 		LOG("parkuntilnext() sent",4, sTRACE)
 	}
 }
 
-void parkindefinite() {
+void parkindefinite(){
 	LOG("parkindefinite()",3,sTRACE)
 	log.warn "state.id: ${state.id} getDeviceId(): ${getDeviceId()}"
-	Map foo = [data:[type:'ParkUntilFurtherNotice']]
-	if(parent.sendCmdToHusqvarna((String)state.id, foo)) {
+	Map foo= [data:[type:'ParkUntilFurtherNotice']]
+	if(parent.sendCmdToHusqvarna((String)state.id, foo)){
 		LOG("parkindefinite() sent",4, sTRACE)
 	}
 }
 
-void park(mins) {
-	if(mins) {
+void park(mins){
+	if(mins){
 		LOG("park($mins)",3,sTRACE)
-		Map foo = [data:[type:'Park',attributes:[duration:mins]]]
-		if(parent.sendCmdToHusqvarna((String)state.id, foo)) {
+		Map foo= [data:[type:'Park',attributes:[duration:mins]]]
+		if(parent.sendCmdToHusqvarna((String)state.id, foo)){
 			LOG("park($mins) sent",4, sTRACE)
 		}
 	} else LOG("start($mins) no minutes specified",1, sERROR)
 }
 
-void resumeSchedule() {
+void resumeSchedule(){
 	LOG("resumeSchedule",3,sTRACE)
-	Map foo = [data:[type:'ResumeSchedule']]
-	if(parent.sendCmdToHusqvarna((String)state.id, foo)) {
+	Map foo= [data:[type:'ResumeSchedule']]
+	if(parent.sendCmdToHusqvarna((String)state.id, foo)){
 		LOG("resumeSchedule() sent",4, sTRACE)
 	}
 }
 
-void setCuttingHeight(level) {
-	if(level) {
+void setCuttingHeight(level){
+	if(level){
 		LOG("setCuttingHeight($level)", 3, sTRACE)
-		Map foo = [data:[type:'settings',attributes:[cuttingHeight:level]]]
-		if(parent.sendSettingToHusqvarna((String)state.id, foo)) {
+		Map foo= [data:[type:'settings',attributes:[cuttingHeight:level]]]
+		if(parent.sendSettingToHusqvarna((String)state.id, foo)){
 			LOG("setCuttingHeight($level) sent",4, sTRACE)
 		}
 	} else LOG("setCuttingHeight($level) no level specified",1, sERROR)
 }
 
-void setHeadlightMode(mode) {
-	if(mode) {
+void setHeadlightMode(mode){
+	if(mode){
 		LOG("setHeadlight($mode)", 3, sTRACE)
-		Map foo = [data:[type:'settings',attributes:[headlight:[mode:mode]]]]
-		if(parent.sendSettingToHusqvarna((String)state.id, foo)) {
+		Map foo= [data:[type:'settings',attributes:[headlight:[mode:mode]]]]
+		if(parent.sendSettingToHusqvarna((String)state.id, foo)){
 			LOG("setHeadlight($mode) sent",4, sTRACE)
 		}
 	} else LOG("setHeadlight($mode) no mode specified",1, sERROR)
 }
 
-void setSchedule(taskList) {
-	if(taskList != null) {
+void setSchedule(taskList){
+	if(taskList != null){
 		LOG("setSchedule($taskList)", 3, sTRACE)
-		Map foo = [data:[type:'calendar', attributes:[tasks:taskList]]]
-		if(parent.sendScheduleToHusqvarna((String)state.id, foo)) {
+		Map foo= [data:[type:'calendar', attributes:[tasks:taskList]]]
+		if(parent.sendScheduleToHusqvarna((String)state.id, foo)){
 			LOG("setSchedule($taskList)",4, sTRACE)
 		}
 	} else LOG("setSchedule missing input parameter(s)",1, sERROR)
 }
 
-void off() {
+void off(){
 	LOG('off()', 4, sTRACE)
 	parkindefinite()
 }
 
-void on() {
+void on(){
 	LOG('on()', 4, sTRACE)
 	resumeSchedule()
 }
 private static TimeZone mTZ(){ return TimeZone.getDefault() } // (TimeZone)location.timeZone
 
-static String getDtNow() {
+static String getDtNow(){
 	Date now=new Date()
 	return formatDt(now)
 }
 
-static String formatDt(Date dt, Boolean tzChg=true) {
+static String formatDt(Date dt, Boolean tzChg=true){
 	SimpleDateFormat tf=new SimpleDateFormat("E MMM dd HH:mm:ss z yyyy")
-	if(tzChg) { if(mTZ()) { tf.setTimeZone(mTZ()) } }
+	if(tzChg){ if(mTZ()){ tf.setTimeZone(mTZ()) } }
 	return (String)tf.format(dt)
 }
 
-String getDeviceId() {
-	String deviceId = ((String)device.deviceNetworkId).split(/\./).last()
+String getDeviceId(){
+	String deviceId= ((String)device.deviceNetworkId).split(/\./).last()
 	LOG("getDeviceId() returning ${deviceId}", 4)
 	return deviceId
 }
@@ -402,30 +402,30 @@ Boolean debugLevel(Integer level=3){
 	return (getIDebugLevel() >= level)
 }
 
-void LOG(message, Integer level=3, String ilogType=sDEBUG, Exception ex=null, Boolean event=false, Boolean displayEvent=false) {
+void LOG(message, Integer level=3, String ilogType=sDEBUG, Exception ex=null, Boolean event=false, Boolean displayEvent=false){
 	String logType,prefix
 
 	logType=ilogType
-	if(logType == sNULL) logType = sDEBUG
-	prefix = sBLANK
+	if(logType == sNULL) logType= sDEBUG
+	prefix= sBLANK
 
-	Integer dbgLevel = getIDebugLevel()
+	Integer dbgLevel= getIDebugLevel()
 	if(logType == sERROR){
-		String a = getDtNow() // getTimestamp()
-		state.lastLOGerror = "${message} @ "+a
-		state.LastLOGerrorDate = a
-	} else {
-		if (level > dbgLevel) return	// let's not waste CPU cycles if we don't have to...
+		String a= getDtNow() // getTimestamp()
+		state.lastLOGerror= "${message} @ "+a
+		state.LastLOGerrorDate= a
+	} else{
+		if(level > dbgLevel) return	// let's not waste CPU cycles if we don't have to...
 	}
 
 	if(!lLOGTYPES.contains(logType)){
 		logerror("LOG() - Received logType (${logType}) which is not in the list of allowed types ${lLOGTYPES}, message: ${message}, level: ${level}")
-		logType = sDEBUG
+		logType= sDEBUG
 	}
 
-	if( dbgLevel == 5 ){ prefix = 'LOG: ' }
+	if( dbgLevel == 5 ){ prefix= 'LOG: ' }
 	"log${logType}"("${prefix}${message}", ex)
-	if (event) { debugEvent(message+" (${logType})", displayEvent) }
+	if(event){ debugEvent(message+" (${logType})", displayEvent) }
 }
 
 private void logdebug(String msg, Exception ex=null){ log.debug logPrefix(msg, "purple") }
@@ -434,33 +434,33 @@ private void logtrace(String msg, Exception ex=null){ log.trace logPrefix(msg, s
 private void logwarn(String msg, Exception ex=null){ logexception(msg,ex,sWARN, sCLRORG) }
 void logerror(String msg, Exception ex=null){ logexception(msg,ex,sERROR, sCLRRED) }
 
-void logexception(String msg, Exception ex=null, String typ, String clr) {
-	String msg1 = ex ? " Exception: ${ex}" : sBLANK
+void logexception(String msg, Exception ex=null, String typ, String clr){
+	String msg1= ex ? " Exception: ${ex}" : sBLANK
 	log."$typ" logPrefix(msg+msg1, clr)
 	String a
 	a= sNULL
-	try {
-		if(ex) a = getExceptionMessageWithLine(ex)
+	try{
+		if(ex) a= getExceptionMessageWithLine(ex)
 	} catch (ignored){ }
 	if(a) log."$typ" logPrefix(a, clr)
 }
 
-static String logPrefix(String msg, String color = sNULL){
+static String logPrefix(String msg, String color= sNULL){
 	return span("AutoMower Device (v" + getVersionNum() + ") | ", sCLRGRY) + span(msg, color)
 }
 
-void debugEvent(message, Boolean displayEvent = false) {
-	def results = [
+void debugEvent(message, Boolean displayEvent= false){
+	def results= [
 		name: "appdebug",
 		descriptionText: message,
 		displayed: displayEvent,
 		isStateChange: true
 	]
-	if ( debugLevel(4) ) { log.debug "Generating AppDebug Event: ${results}" }
+	if( debugLevel(4) ){ log.debug "Generating AppDebug Event: ${results}" }
 	sendEvent(results)
 }
 
-def getParentSetting(String settingName) {
+def getParentSetting(String settingName){
 	return parent?."${settingName}"
 }
 
@@ -472,4 +472,4 @@ def getParentSetting(String settingName) {
 @Field static final String sTRACE		= 'trace'
 @Field static final String sWARN		= 'warn'
 
-Long wnow() { return (Long)now() }
+Long wnow(){ return (Long)now() }

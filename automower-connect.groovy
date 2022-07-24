@@ -10,7 +10,7 @@
  *
  *	Husqvarna AutoMower
  *
- *  Modified July 21, 2022
+ *  Modified July 24, 2022
  *
  *  Instructions:
  *	Go to developer.husqvarnagroup.cloud
@@ -35,7 +35,7 @@ import groovy.json.*
 import groovy.transform.Field
 import java.text.SimpleDateFormat
 
-static String getVersionNum()		{ return "00.00.03" }
+static String getVersionNum()		{ return "00.00.04" }
 static String getVersionLabel()		{ return "Husqvarna Automower Manager, version "+getVersionNum() }
 static String getMyNamespace()		{ return "imnotbob" }
 
@@ -114,8 +114,6 @@ void uninstalled(){
 
 void updated(){
 	LOG("Updated with settings: ${settings}",2,sTRACE)
-	unschedule()
-	unsubscribe()
 	cleanupStates()
 	initialize()
 }
@@ -805,14 +803,14 @@ void parseAuthResponse(resp){
 	//log.debug "response data: ${myObj(resp.data)} ${resp.data}"
 	String str
 	str=sBLANK
-	resp.data.each {
+	resp.data.each{
 		str += "\n${it.key} --> ${it.value}, "
 	}
 	LOG(msgH+"response data: ${str}",4,sDEBUG)
 	LOG(msgH+"response data object type: ${myObj(resp.data)}",4,sDEBUG)
 
 	str=sBLANK
-	resp.getHeaders().each {
+	resp.getHeaders().each{
 		str += "\n${it.name}: ${it.value}, "
 	}
 	log.debug msgH+"response headers: ${str}"
@@ -820,7 +818,7 @@ void parseAuthResponse(resp){
 
 	//str=sBLANK
 	//log.debug "resp param ${resp.params}"
-	//resp.params.each { str += "${it.name}: ${it.value}"}
+	//resp.params.each{ str += "${it.name}: ${it.value}"}
 	//log.debug "response params: ${str}"
 }
 
@@ -864,12 +862,12 @@ def callback(){
 				timeout: 30
 		]
 		LOG("callback()-->reqP ${reqP}", 4)
-		try {
+		try{
 			httpPost(reqP){ resp ->
 				if(resp && resp.data && resp.isSuccess()){
 //					parseAuthResponse(resp)
 					String kk
-					resp.data.each { kk=it.key }
+					resp.data.each{ kk=it.key }
 					Map ndata=(Map)new JsonSlurper().parseText(kk)
 					log.debug "ndata : ${ndata}"
 
@@ -891,7 +889,7 @@ def callback(){
 					def dev= getSocketDevice()
 					if(dev){
 						dev.updateCookies(ndata.access_token)
-						if(!(Boolean)dev.isSocketActive()) { dev.triggerInitialize() }
+						if(!(Boolean)dev.isSocketActive()){ dev.triggerInitialize() }
 					}
 
 				}else{ eMsg= fail() }
@@ -1019,7 +1017,7 @@ static String myObj(obj){
 Boolean weAreLost(String msgH, String meth){
 	String msg
 	msg= sBLANK
-	if(!(String)state.authToken) {
+	if(!(String)state.authToken){
 		apiLost(msgH+"weAreLost() found no auth token, called by ${meth}")
 	}
 	if(apiConnected() == sLOST){
@@ -1042,7 +1040,7 @@ Boolean weAreLost(String msgH, String meth){
 Map<String,String> getAutoMowers(Boolean frc=false, String meth="followup", Boolean isRetry=false){
 	String msgH="getAutoMowers(force: $frc, calledby: $meth, isRetry: $isRetry) | "
 
-	if(debugLevel(4)) { LOG(msgH+"====> entered ",4,sTRACE) }
+	if(debugLevel(4)){ LOG(msgH+"====> entered ",4,sTRACE) }
 	else LOG(msgH, 3,sTRACE)
 
 	if(weAreLost(msgH, 'getAutoMowers')){
@@ -1058,8 +1056,8 @@ Map<String,String> getAutoMowers(Boolean frc=false, String meth="followup", Bool
 	skipIt=false
 	Boolean myfrc=(!state.mowerData || !state.mowersWithNames)
 	Integer lastU=getLastTsValSecs("getAutoUpdDt") // last attempt
-	if( (frc && lastU < 60)) { skipIt=true }
-	if( (!frc && lastU < 150) ) { skiptIt=true } // related to getMinMinsBtwPolls
+	if( (frc && lastU < 60)){ skipIt=true }
+	if( (!frc && lastU < 150) ){ skiptIt=true } // related to getMinMinsBtwPolls
 
 	Map<String,String> mowers
 	mowers=[:]
@@ -1068,7 +1066,7 @@ Map<String,String> getAutoMowers(Boolean frc=false, String meth="followup", Bool
 
 	msg=sBLANK
 
-	if(myfrc || !skipIt) {
+	if(myfrc || !skipIt){
 		updTsVal("getAutoUpdDt")
 		Map deviceListParams=[
 			uri: getMowerApiEndpoint() +"/mowers",
@@ -1081,34 +1079,34 @@ Map<String,String> getAutoMowers(Boolean frc=false, String meth="followup", Bool
 			query: null,
 			timeout: 30
 		]
-		if(debugLevel(4)) {
+		if(debugLevel(4)){
 			msg+="http params -- ${deviceListParams} "
 		}
 		msg +="HTTPGET "
-		if(msg) {
+		if(msg){
 			LOG(msgH + msg, 3, sTRACE)
 			msg=sBLANK
 		}
 
 		Boolean exitout
 		exitout=false
-		try {
-			httpGet(deviceListParams) { resp ->
+		try{
+			httpGet(deviceListParams){ resp ->
 				LOG(msgH + "httpGet() ${resp.status} Response", 4, sTRACE)
 				String rdata
 				Map adata
-				if(resp) {
+				if(resp){
 					rdata=resp.data.text // need to save first time since it is a ByteArrayInputStream
 					if(rdata) adata=(Map)new JsonSlurper().parseText(rdata)
 				}
-				if(resp && resp.isSuccess() && resp.status == 200 && adata) {
+				if(resp && resp.isSuccess() && resp.status == 200 && adata){
 
-					List<Map> ndata=((List<Map>)adata.data)?.findAll { it.type == "mower" }
+					List<Map> ndata=((List<Map>)adata.data)?.findAll{ it.type == "mower" }
 
 					state.numAvailMowers=((List<Map>)ndata)?.size() ?: 0
 
 					Map<String, Map> mdata=[:]
-					ndata.each { Map mower ->
+					ndata.each{ Map mower ->
 						String dni=getMowerDNI((String) mower.id)
 						mowers[dni]=getMowerDisplayName(mower)
 						mowersLocation[dni]=getMowerLocation(mower)
@@ -1120,7 +1118,7 @@ Map<String,String> getAutoMowers(Boolean frc=false, String meth="followup", Bool
 				}else{
 					LOG(msgH + "httpGet() in else: http status: ${resp.status}", 1, sTRACE)
 					//refresh the auth token
-					if(resp.status == 500) { //} && resp.data?.status?.code == 14) {
+					if(resp.status == 500){ //} && resp.data?.status?.code == 14){
 						if(!isRetry){
 							LOG(msgH + "Refreshing auth_token!", 3, sTRACE)
 							if(refreshAuthToken('getAutoMowers')){
@@ -1133,9 +1131,9 @@ Map<String,String> getAutoMowers(Boolean frc=false, String meth="followup", Bool
 					exitout=true
 				}
 			}
-		} catch(Exception e) {
+		} catch(Exception e){
 			LOG(msgH + "___exception", 1, sERROR, e)
-			if(!isRetry) {
+			if(!isRetry){
 				Boolean a= refreshAuthToken('getAutoMowers')
 			}
 			exitout=true
@@ -1150,7 +1148,7 @@ Map<String,String> getAutoMowers(Boolean frc=false, String meth="followup", Bool
 	}
 	msg += cached+"mowersWithNames: ${mowers}, locations: ${mowersLocation}"
 	LOG(msgH+msg, 4, sTRACE)
-	return (mowers) ? mowers.sort { it.value } : null
+	return (mowers) ? mowers.sort{ it.value } : null
 }
 
 
@@ -1158,11 +1156,11 @@ Map<String,String> getAutoMowers(Boolean frc=false, String meth="followup", Bool
  * max 1 command per second
  * Commands are queued at Husqvarna, and executed when mower checks in
  */
-Boolean sendCmdToHusqvarna(String mowerId, Map data, Boolean isRetry=false, String uriend='actions') {
+Boolean sendCmdToHusqvarna(String mowerId, Map data, Boolean isRetry=false, String uriend='actions'){
 	String msgH= "sendCmdToHusqvarna(mower: $mowerId, data: $data, isRetry: $isRetry uriend: $uriend) | "
 
 	Boolean ok= (mowerId && mowerId in (List<String>)settings.mowers)
-	if(!ok) {
+	if(!ok){
 		LOG(msgH + "mower not enabled in settings: $settings.mowers", 1, sERROR)
 		return false
 	}
@@ -1188,34 +1186,34 @@ Boolean sendCmdToHusqvarna(String mowerId, Map data, Boolean isRetry=false, Stri
 	]
 	String msg
 	msg= sBLANK
-	if(debugLevel(4)) {
+	if(debugLevel(4)){
 		msg+="http params -- ${deviceListParams} "
 	}
 	msg +="HTTPPOST "
-	if(msg) {
+	if(msg){
 		LOG(msgH + msg, 2, sTRACE)
 		msg=sBLANK
 	}
 
 	Boolean res
 	res=false
-	try {
-		httpPost(deviceListParams) { resp ->
+	try{
+		httpPost(deviceListParams){ resp ->
 			String rdata
 			/*
 			Map adata
-			if(resp) {
+			if(resp){
 				rdata=resp.data.text // need to save first time since it is a ByteArrayInputStream
 				if(rdata) adata=(Map)new JsonSlurper().parseText(rdata)
 			}*/
-			if(resp && resp.isSuccess() && resp.status >= 200 && resp.status <= 299) {
+			if(resp && resp.isSuccess() && resp.status >= 200 && resp.status <= 299){
 				res=true
 				LOG(msgH + "httpPost() ${resp.status} Response $res", 2, sTRACE)
 				runIn(85, sPOLL, [overwrite: true]) // give time for command to complete; then get new status
 			}else{
 				LOG(msgH + "httpPost() in else: http status: ${resp.status}", 1, sTRACE)
 				//refresh the auth token
-				if(resp.status == 500) { //} && resp.data?.status?.code == 14) {
+				if(resp.status == 500){ //} && resp.data?.status?.code == 14){
 					//LOG(msgH + "Storing the failed action to try later", 1, sTRACE)
 					//state.action="getAutoMowers"
 					if(!isRetry){
@@ -1227,29 +1225,29 @@ Boolean sendCmdToHusqvarna(String mowerId, Map data, Boolean isRetry=false, Stri
 				}
 			}
 		}
-	} catch(Exception e) {
+	} catch(Exception e){
 		LOG(msgH + "___exception $res", 1, sERROR, e)
 		//state.action="getAutoMowers"
-		if(!isRetry) {
+		if(!isRetry){
 			Boolean a= refreshAuthToken('sendCmdToHusqvarna')
 		}
 	}
 	return res
 }
 
-Boolean sendSettingToHusqvarna(String mowerId, Map data, Boolean isRetry=false) {
+Boolean sendSettingToHusqvarna(String mowerId, Map data, Boolean isRetry=false){
 	return sendCmdToHusqvarna(mowerId, data, isRetry,'settings')
 }
 
-Boolean sendScheduleToHusqvarna(String mowerId, Map data, Boolean isRetry=false) {
+Boolean sendScheduleToHusqvarna(String mowerId, Map data, Boolean isRetry=false){
 	return sendCmdToHusqvarna(mowerId, data, isRetry,'calendar')
 }
 
-Map getMowerMap(String tid) {
-	if(tid) {
+Map getMowerMap(String tid){
+	if(tid){
 		String dni=getMowerDNI(tid)
 		Map<String,Map>mowerMap=(Map<String,Map>)state.mowerData
-		if(dni && mowerMap) {
+		if(dni && mowerMap){
 			return mowerMap[dni]
 		}
 	}
@@ -1281,7 +1279,7 @@ static String getMowerModelName(Map mower){
 }
 
 static String getMowerLocation(Map mower){
-	if((String)mower?.attributes?.mower?.mode && (String)mower?.attributes?.mower?.activity) {
+	if((String)mower?.attributes?.mower?.mode && (String)mower?.attributes?.mower?.activity){
 		return (String)mower?.attributes?.mower?.mode+sSPACE+(String)mower?.attributes?.mower?.activity
 	}
 	return "location not found??"
@@ -1333,10 +1331,10 @@ Boolean createChildrenMowers(){
 	fnd=0
 	LOG("createChildrenMowers() entered: mowers=${(List<String>)settings.mowers}", 4, sTRACE)
 	// Create the child Mower Devices
-	List devices=((List<String>)settings.mowers).collect { dni ->
+	List devices=((List<String>)settings.mowers).collect{ dni ->
 		def d=getChildDevice(dni)
 		if(!d){
-			try {
+			try{
 				d=addChildDevice(myNamespace, getAutoMowerName(), dni, ((List)location.hubs)[0]?.id, ["label":"Mower: ${state.mowersWithNames[dni]}", completedSetup:true])
 			} catch(Exception e){
 				if("${e}".startsWith("com.hubitat.app.exception.UnknownDeviceTypeException")){
@@ -1359,7 +1357,7 @@ Boolean createChildrenMowers(){
 }
 /*
 String getChildAppName(String childId){
-	def child=getChildApps().find { it.id.toString() == childId }
+	def child=getChildApps().find{ it.id.toString() == childId }
 	return child ? (cleanAppName((String)child.label?:(String)child.name)) : sBLANK
 } */
 
@@ -1393,10 +1391,10 @@ void deleteUnusedChildren(){
 		List childrenToKeep=((List<String>)settings.mowers ?: []) + [ getSocketDNI() ] //socket
 		LOG("These are the children to keep around: ${childrenToKeep}", 4, sTRACE)
 
-		List childrenToDelete=allMyChildren.findAll { !childrenToKeep.contains(it.deviceNetworkId) }
+		List childrenToDelete=allMyChildren.findAll{ !childrenToKeep.contains(it.deviceNetworkId) }
 		if(childrenToDelete.size() > 0){
 			LOG("Ready to delete these devices: ${childrenToDelete}", 0, sWARN)
-			childrenToDelete?.each { deleteChildDevice(it.deviceNetworkId) }
+			childrenToDelete?.each{ deleteChildDevice(it.deviceNetworkId) }
 		}
 	}
 }
@@ -1407,7 +1405,7 @@ void scheduledWatchdog(evt=null, Boolean local=false, String meth="schedule/runi
 	String msg
 	msg="event: (${evtStr}) | local (${local}) | by ${meth} | "
 	Boolean debugLevelFour=debugLevel(4)
-	if(debugLevelFour) { LOG(msgH+msg, 4, sTRACE); msg=sBLANK }
+	if(debugLevelFour){ LOG(msgH+msg, 4, sTRACE); msg=sBLANK }
 
 	Long oldLast
 	oldLast=state.lastScheduledWatchdog
@@ -1435,7 +1433,7 @@ void scheduledWatchdog(evt=null, Boolean local=false, String meth="schedule/runi
 	Long timeBeforeExpiry=texp ? texp - wnow() : 0L
 	if(timeBeforeExpiry < 1800000L){
 		msg += "Calling refreshToken | timeBeforeExpiry: ${timeBeforeExpiry} | "
-		if(debugLevelFour) { LOG(msgH+msg, 4, sTRACE); msg=sBLANK }
+		if(debugLevelFour){ LOG(msgH+msg, 4, sTRACE); msg=sBLANK }
 		if( !refreshAuthToken('scheduledWatchdog') ){
 			return
 		}
@@ -1443,11 +1441,11 @@ void scheduledWatchdog(evt=null, Boolean local=false, String meth="schedule/runi
 
 	if(weAreLost(msgH, 'scheduledWatchdog')){
 		msg += "exiting - no connection"
-		if(debugLevelFour) { LOG(msgH+msg, 4, sTRACE); msg=sBLANK }
+		if(debugLevelFour){ LOG(msgH+msg, 4, sTRACE); msg=sBLANK }
 		return
 	}
 
-	if(msg && debugLevelFour) { LOG(msgH+msg, 4, sTRACE); msg=sBLANK }
+	if(msg && debugLevelFour){ LOG(msgH+msg, 4, sTRACE); msg=sBLANK }
 	checkPolls(msgH)
 
 	// Only update the Scheduled timestamp if run by a timer (schedule or runIn)
@@ -1464,10 +1462,10 @@ void scheduledWatchdog(evt=null, Boolean local=false, String meth="schedule/runi
 
 void checkPolls(String msgH, Boolean apiOk=true, Boolean frc=false){
 	Boolean haveMowers=(((List<String>)settings.mowers)?.size() > 0)
-	if(apiOk && haveMowers) {
+	if(apiOk && haveMowers){
 		chkRestartSocket(false)
 		if(frc) LOG("Spawning the poll scheduled event. (mowers.size(): ${((List<String>) settings.mowers)?.size()})", 2, sTRACE)
-		if(frc || !isDaemonAlive(sPOLL, msgH)) {
+		if(frc || !isDaemonAlive(sPOLL, msgH)){
 			LOG(msgH + "rescheduling poll daemon", 1, sTRACE); spawnDaemon(sPOLL, !frc)
 		}
 	}else{
@@ -1549,7 +1547,7 @@ Boolean spawnDaemon(String idaemon="all", Boolean unsched=true){
 		//options:["6", "10", "15", "30", "60"])
 		if(pollingInterval>30) pollingInterval=60
 		msg += " - Performing seance for daemon 'poll' interval ${pollingInterval}"
-		try {
+		try{
 			if(unsched){ unschedule('pollScheduled') }
 			"runEvery${pollingInterval}Minute${pollingInterval!=1?'s':sBLANK}"('pollScheduled')
 
@@ -1567,7 +1565,7 @@ Boolean spawnDaemon(String idaemon="all", Boolean unsched=true){
 
 	if(daemon == "watchdog" || daemon == "all"){
 		msg += " - Performing seance for daemon 'watchdog' interval ${iWATCHDOGINTERVAL}"
-		try {
+		try{
 			if(unsched){ unschedule("scheduledWatchdog") }
 			"runEvery${iWATCHDOGINTERVAL}Minutes"("scheduledWatchdog")
 		} catch(Exception e){
@@ -1684,7 +1682,7 @@ Boolean pollChildren(String deviceId=sBLANK,Boolean force=false, Boolean isSched
 
 	if(tooSoon){
 
-		if(debugLevel(4)) {
+		if(debugLevel(4)){
 			LOG(msgH+"Too soon poll request, deferring...recent: ${aa/60000L} mins last: $last desired: ${minPoll}",2,sTRACE)
 			LOG(msgH+"=====> state.lastPoll RUN (${state.lastPoll}) now(${wnow()}) state.lastPollDate(${state.lastPollDate})", 2, sTRACE)
 //			LOG(msgH+"=====> state.lastScheduledPoll RUN (${state.lastScheduledPoll}) now(${wnow()}) state.lastScheduledPollDate(${state.lastScheduledPollDate})", 2, sTRACE)
@@ -1720,7 +1718,7 @@ Boolean pollChildren(String deviceId=sBLANK,Boolean force=false, Boolean isSched
 	checkPolls(msgH)
 
 	Map foo=getAutoMowers(forcePoll,"pollChildren")
-	if(foo!=null) {
+	if(foo!=null){
 		updatesLog.forcePoll=false
 		state.updatesLog=updatesLog
 		if(((List<String>)settings.mowers)?.size() < 1){
@@ -1746,10 +1744,10 @@ Boolean updateMowerChildren(){
 	String msgH="updateMowerChildren | "
 	Boolean result
 	result=false
-	((List<String>)settings.mowers)?.each {String mower ->
+	((List<String>)settings.mowers)?.each{String mower ->
 		List<Map> flist=[]
 		Map srcMap=getMowerMap(mower)
-		if(srcMap) {
+		if(srcMap){
 			String dbg=settings.debugLevel == null ? "2" : settings.debugLevel
 			String apiConnection=apiConnected()
 			String slastPoll=(debugLevel(4)) ? "${apiConnection} @ ${formatDt(new Date(gtLastDataUpd()))}" : (apiConnection==sFULL) ? 'Succeeded' : (apiConnection==sWARN) ? 'Timed Out' : 'Failed'
@@ -1782,7 +1780,7 @@ Boolean updateMowerChildren(){
 			Boolean hasErr = mst in [ 'ERROR', 'FATAL_ERROR', 'ERROR_AT_POWER_UP' ]
 			String errC=srcMap.attributes.mower.errorCode // STRING
 			flist << ['errorCode':	errC ] // STRING
-			flist << ['errorCodeS':	hasErr && errC!=sNULL && errCodes[errC]!=null ? errCodes[errC] : sBLANK ] // STRING
+			flist << ['errorCodeS':	hasErr && errC!=sNULL && errCodes[errC]!=null ? errCodes[errC] : 'Not set' ] // STRING
 			flist << ['errorTimeStamp': srcMap.attributes.mower.errorCodeTimestamp] // (EPOCH LONG)
 			flist << ['plannerNextStart': srcMap.attributes.planner.nextStartTimestamp] // (EPOCH LONG)
 			flist << ['plannerOverride'	: srcMap.attributes.planner.override.action] // Override Action
@@ -1811,7 +1809,7 @@ Boolean updateMowerChildren(){
 			flist << [debugLevel: dbg]
 
 			def chld=getChildDevice(mower)
-			if(chld) { chld.generateEvent(flist); result=true }
+			if(chld){ chld.generateEvent(flist); result=true }
 			else LOG(msgH+'Child device $mower not found', 1, sWARN)
 		}else LOG(msgH+"no data from API for mower $mower", 3, sWARN)
 	}
@@ -1836,12 +1834,12 @@ void generateEventLocalParams(){
 	String LOGtype= apiConnection==sLOST ? sERROR : (apiConnection==sWARN ? sWARN : sINFO)
 	Integer lvl= apiConnection==sLOST ? 2 : (apiConnection==sWARN ? 2 : 4)
 	Boolean a= lvl == 2 ? dbg2 : dbg4 // TODO THIS IS STRANGE INTELLIJ bug was debugLevel(lvl)
-	if(a) {
+	if(a){
 		LOG("Updating API status with ${data}${LOGtype==sWARN ? " - will retry" : ''}", lvl, LOGtype)
 	}
 
 	// Iterate over all the children
-	((List<String>)settings.mowers)?.each { String it ->
+	((List<String>)settings.mowers)?.each{ String it ->
 		getChildDevice(it)?.generateEvent(data)
 	}
 }
@@ -1996,10 +1994,10 @@ void generateEventLocalParams(){
 ]
 
 static String toQueryString(Map m){
-	return m.collect { k, v -> "${k}=${URLEncoder.encode(v.toString())}" }.sort().join("&")
+	return m.collect{ k, v -> "${k}=${URLEncoder.encode(v.toString())}" }.sort().join("&")
 }
 
-void retryHelper() {
+void retryHelper(){
 	Boolean a=refreshAuthToken('retryHelper')
 }
 
@@ -2030,10 +2028,10 @@ Boolean refreshAuthToken(String meth, child=null){
 
 	msg += "Want to refresh token | "
 	def rt= atomicState.refreshToken
-	if(!rt || timeBeforeExpiry < 30L) {
+	if(!rt || timeBeforeExpiry < 30L){
 		state.authToken=sNULL
 		tokenStillGood=false
-		if(msg) { LOG(msgH + msg, 2, sTRACE); msg=sBLANK }
+		if(msg){ LOG(msgH + msg, 2, sTRACE); msg=sBLANK }
 		apiLost(msgH+"No refresh Token (${rt}) or expired refresh token ${timeBeforeExpiry} ${texp} | CLEARED authToken due to no refreshToken or expired authToken")
 	}else{
 		msg +='Performing token refresh'
@@ -2054,11 +2052,11 @@ Boolean refreshAuthToken(String meth, child=null){
 		}
 
 		msg += "state.authTokenExpires=${texp}  ${formatDt(new Date(texp))} "
-		if(msg) {
+		if(msg){
 			LOG(msgH + msg, 2, sTRACE) // 4
 			msg=sBLANK
 		}
-		try {
+		try{
 			httpPost(refreshParams){ resp ->
 				//if(debugLevelFour) LOG("Inside httpPost resp handling.", 1, sTRACE, null, child)
 				if(resp && resp.isSuccess() && resp.status && (resp.status == 200)){
@@ -2066,7 +2064,7 @@ Boolean refreshAuthToken(String meth, child=null){
 
 //					parseAuthResponse(resp)
 					String kk
-					resp.data.each { kk=it.key }
+					resp.data.each{ kk=it.key }
 					Map ndata=(Map)new JsonSlurper().parseText(kk)
 //					log.debug "ndata : ${ndata}"
 
@@ -2076,7 +2074,7 @@ Boolean refreshAuthToken(String meth, child=null){
 						return tokenStillGood
 					}
 
-					if(state.reAttempt) { state.reAttempt=0; state.remove('reAttempt') }
+					if(state.reAttempt){ state.reAttempt=0; state.remove('reAttempt') }
 					if(state.inTimeoutRetry){ state.inTimeoutRetry=0; state.remove('inTimeoutRetry') }
 					state.lastTokenRefresh=wnow()
 					state.lastTokenRefreshDate=getTimestamp()
@@ -2099,7 +2097,7 @@ Boolean refreshAuthToken(String meth, child=null){
 					def dev= getSocketDevice()
 					if(dev){
 						dev.updateCookies(ndata.access_token)
-						if(!(Boolean)dev.isSocketActive()) { dev.triggerInitialize() }
+						if(!(Boolean)dev.isSocketActive()){ dev.triggerInitialize() }
 					}
 
 					LOG("refreshAuthToken() - Success! Token expires in ${String.format("%.2f",ndata.expires_in/60)} minutes", 3, sINFO, null, child) // 3
@@ -2133,7 +2131,7 @@ Boolean refreshAuthToken(String meth, child=null){
 				tokenStillGood=false
 				apiLost(msgH+"CLEARING AUTH TOKEN - Too many retries (${state.reAttempt - 1}) for token refresh, or expired auth token ${timeBeforeExpiry} ${state.authTokenExpires}")
 				def dev= getSocketDevice()
-				if(dev) {
+				if(dev){
 					dev.removeCookies(true)
 				}
 			}else{
@@ -2189,11 +2187,11 @@ private void logtrace(String msg, Exception ex=null){ log.trace logPrefix(msg, s
 private void logwarn(String msg, Exception ex=null){ logexception(msg,ex,sWARN, sCLRORG) }
 void logerror(String msg, Exception ex=null){ logexception(msg,ex,sERROR, sCLRRED) }
 
-void logexception(String msg, Exception ex=null, String typ, String clr) {
+void logexception(String msg, Exception ex=null, String typ, String clr){
 	String msg1=ex ? " Exception: ${ex}" : sBLANK
 	log."$typ" logPrefix(msg+msg1, clr)
 	String a
-	try {
+	try{
 		if(ex) a=getExceptionMessageWithLine(ex)
 	} catch(ignored){ }
 	if(a) log."$typ" logPrefix(a, clr)
@@ -2278,13 +2276,13 @@ void sendMessage(String notificationMessage){
 		if((Boolean)settings.speak){
 			if(notifyNowOK()){
 				if(settings.speechDevices != null){
-					settings.speechDevices.each {
+					settings.speechDevices.each{
 						it.speak((addFrom?"From ":sBLANK) + msg )
 					}
 					ntsp=wnow()
 				}
 				if(settings.musicDevices != null){
-					settings.musicDevices.each {
+					settings.musicDevices.each{
 						it.setLevel( settings.volume )
 						it.playText((addFrom?"From ":sBLANK) + msg )
 					}
@@ -2292,7 +2290,7 @@ void sendMessage(String notificationMessage){
 				}
 			}else LOG(msgH+"speak/music notification restricted", 2, sTRACE)
 		}
-		if(otsp != ntsp) {
+		if(otsp != ntsp){
 			state.timeSendPush=ntsp
 		}else LOG(msgH+"settings did not have any message sent", 2, sTRACE)
 	}
@@ -2304,13 +2302,13 @@ Boolean sendNotifications( String msgPrefix, String msg ){
 		return false
 	}
 
-	List echo=((List)settings.notifiers).findAll { (it.deviceNetworkId.contains('|echoSpeaks|') && it.hasCommand('sendAnnouncementToDevices')) }
+	List echo=((List)settings.notifiers).findAll{ (it.deviceNetworkId.contains('|echoSpeaks|') && it.hasCommand('sendAnnouncementToDevices')) }
 	List notEcho=echo ? (List)settings.notifiers - echo : (List)settings.notifiers
 	List echoDeviceObjs=[]
 	if((Boolean)settings.echoAnnouncements){
 		if(echo?.size()){
 			// Get all the Echo Speaks devices to speak at once
-			echo.each {
+			echo.each{
 				String deviceType=it.currentValue('deviceType') as String
 				// deviceSerial is an attribute as of Echo Speaks device version 3.6.2.0
 				String deviceSerial=(it.currentValue('deviceSerial') ?: it.deviceNetworkId.toString().split(/\|/).last()) as String
@@ -2338,7 +2336,7 @@ Boolean sendNotifications( String msgPrefix, String msg ){
 /*
 void sendActivityFeeds(String notificationMessage){
 	def devices=getChildDevices()
-	devices.each { child ->
+	devices.each{ child ->
 		child.generateActivityFeedsEvent(notificationMessage) //parse received message from parent
 	}
 } */
@@ -2368,7 +2366,7 @@ void apiRestored(Boolean chkP=true){
 
 	def dev= getSocketDevice()
 	if(dev){
-		if(!(Boolean)dev.isSocketActive()) { dev.triggerInitialize() }
+		if(!(Boolean)dev.isSocketActive()){ dev.triggerInitialize() }
 	}
 }
 
@@ -2398,14 +2396,14 @@ void apiLost(String where="[where not specified]"){
 	runIn(15, notifyApiLostHelper, [overwrite: true])
 }
 
-void notifyApiLostHelper() {
+void notifyApiLostHelper(){
 	if( (String)state.connected == sLOST ){
 		LOG("Unscheduling Polling and refreshAuthToken. User MUST reintialize the connection with AutoConnect by running the AutoMower Manager App and logging in again", 0, sERROR)
 		generateEventLocalParams() // Update the connection status
 		// put a log for each child that we are lost
 		if( debugLevel(3) ){
 			def d=getChildDevices()
-			d?.each { oneChild ->
+			d?.each{ oneChild ->
 				LOG("apiLost() - notifying child: ${oneChild.device.displayName} of loss", 3, sERROR, null, oneChild)
 			}
 		}
@@ -2506,23 +2504,23 @@ static String getFormat(String type, String myText=sBLANK){
 	}
 }
 
-static String getDtNow() {
+static String getDtNow(){
 	Date now=new Date()
 	return formatDt(now)
 }
 
-static String formatDt(Date dt, Boolean tzChg=true) {
+static String formatDt(Date dt, Boolean tzChg=true){
 	SimpleDateFormat tf=new SimpleDateFormat("E MMM dd HH:mm:ss z yyyy")
-	if(tzChg) { if(mTZ()) { tf.setTimeZone(mTZ()) } }
+	if(tzChg) if(mTZ()){ tf.setTimeZone(mTZ()) }
 	return (String)tf.format(dt)
 }
 
 @Field static final List<String> svdTSValsFLD=["lastCookieRrshDt"]
 @Field volatile static Map<String,Map> tsDtMapFLD=[:]
 
-private void updTsVal(String key, String dt=sNULL) {
+private void updTsVal(String key, String dt=sNULL){
 	String val=dt ?: getDtNow()
-	if(key in svdTSValsFLD) { updServerItem(key, val); return }
+	if(key in svdTSValsFLD){ updServerItem(key, val); return }
 
 	String appId=app.getId().toString()
 	Map data=tsDtMapFLD[appId] ?: [:]
@@ -2531,47 +2529,47 @@ private void updTsVal(String key, String dt=sNULL) {
 	tsDtMapFLD=tsDtMapFLD
 }
 
-private void remTsVal(key) {
+private void remTsVal(key){
 	String appId=app.getId().toString()
 	Map data=tsDtMapFLD[appId] ?: [:]
-	if(key) {
-		if(key instanceof List) {
+	if(key){
+		if(key instanceof List){
 			List<String> aa=(List<String>)key
-			aa.each { String k->
-				if(data.containsKey(k)) { data.remove(k) }
-				if(k in svdTSValsFLD) { remServerItem(k) }
+			aa.each{ String k->
+				if(data.containsKey(k)){ data.remove(k) }
+				if(k in svdTSValsFLD){ remServerItem(k) }
 			}
 		}else{
 			String sKey=(String)key
-			if(data.containsKey(sKey)) { data.remove(sKey) }
-			if(sKey in svdTSValsFLD) { remServerItem(sKey) }
+			if(data.containsKey(sKey)){ data.remove(sKey) }
+			if(sKey in svdTSValsFLD){ remServerItem(sKey) }
 		}
 		tsDtMapFLD[appId]=data
 		tsDtMapFLD=tsDtMapFLD
 	}
 }
 
-private String getTsVal(String key) {
-	if(key in svdTSValsFLD) {
+private String getTsVal(String key){
+	if(key in svdTSValsFLD){
 		return (String)getServerItem(key)
 	}
 	String appId=app.getId().toString()
 	Map tsMap=tsDtMapFLD[appId]
-	if(key && tsMap && tsMap[key]) { return (String)tsMap[key] }
+	if(key && tsMap && tsMap[key]){ return (String)tsMap[key] }
 	return sNULL
 }
 
-Integer getLastTsValSecs(String val, Integer nullVal=1000000) {
+Integer getLastTsValSecs(String val, Integer nullVal=1000000){
 	return (val && getTsVal(val)) ? GetTimeDiffSeconds(getTsVal(val)).toInteger() : nullVal
 }
 
 @Field volatile static Map<String,Map> serverDataMapFLD=[:]
 
-void updServerItem(String key, val) {
+void updServerItem(String key, val){
 	Map data
 	data=atomicState?.serverDataMap
 	data=data ?: [:]
-	if(key) {
+	if(key){
 		String appId=app.getId().toString()
 		data[key]=val
 		atomicState.serverDataMap=data
@@ -2580,15 +2578,15 @@ void updServerItem(String key, val) {
 	}
 }
 
-void remServerItem(key) {
+void remServerItem(key){
 	Map data
 	data=atomicState?.serverDataMap
 	data=data ?: [:]
-	if(key) {
-		if(key instanceof List) {
+	if(key){
+		if(key instanceof List){
 			List<String> aa=(List<String>)key
-			aa?.each { String k-> if(data.containsKey(k)) { data.remove(k) } }
-		}else{ if(data.containsKey((String)key)) { data.remove((String)key) } }
+			aa?.each{ String k-> if(data.containsKey(k)){ data.remove(k) } }
+		}else{ if(data.containsKey((String)key)){ data.remove((String)key) } }
 		String appId=app.getId().toString()
 		atomicState?.serverDataMap=data
 		serverDataMapFLD[appId]= [:]
@@ -2596,15 +2594,15 @@ void remServerItem(key) {
 	}
 }
 
-def getServerItem(String key) {
+def getServerItem(String key){
 	String appId=app.getId().toString()
 	Map fdata
 	fdata=serverDataMapFLD[appId]
 	if(fdata == null) fdata=[:]
-	if(key) {
-		if(fdata[key] == null) {
+	if(key){
+		if(fdata[key] == null){
 			Map sMap=atomicState?.serverDataMap
-			if(sMap && sMap[key]) {
+			if(sMap && sMap[key]){
 				fdata[key]=sMap[key]
 			}
 		}
@@ -2613,9 +2611,9 @@ def getServerItem(String key) {
 	return null
 }
 
-Long GetTimeDiffSeconds(String lastDate, String sender=sNULL) {
-	try {
-		if(lastDate?.contains("dtNow")) { return 10000 }
+Long GetTimeDiffSeconds(String lastDate, String sender=sNULL){
+	try{
+		if(lastDate?.contains("dtNow")){ return 10000 }
 		Date lastDt=Date.parse("E MMM dd HH:mm:ss z yyyy", lastDate)
 		Long start=lastDt.getTime()
 		Long stop=wnow()
