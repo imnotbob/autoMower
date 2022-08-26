@@ -10,7 +10,7 @@
  *
  *	Husqvarna AutoMower
  *
- *  Modified July 24, 2022
+ *  Modified August 25, 2022
  *
  *  Instructions:
  *	Go to developer.husqvarnagroup.cloud
@@ -35,7 +35,7 @@ import groovy.json.*
 import groovy.transform.Field
 import java.text.SimpleDateFormat
 
-static String getVersionNum()		{ return "00.00.04" }
+static String getVersionNum()		{ return "00.00.05" }
 static String getVersionLabel()		{ return "Husqvarna Automower Manager, version "+getVersionNum() }
 static String getMyNamespace()		{ return "imnotbob" }
 
@@ -1796,13 +1796,15 @@ Boolean updateMowerChildren(){
 			flist << ['cuttingHeight': srcMap.attributes.settings.cuttingHeight] // Level
 			flist << ['headlight': srcMap.attributes.settings.headlight.mode]
 
-			flist << ['cuttingBladeUsageTime' : srcMap.attributes.statistics.cuttingBladeUsageTime /3600]
-			flist << ['numberOfChargingCycles' : srcMap.attributes.statistics.numberOfChargingCycles]
-			flist << ['numberOfCollisions' : collisions]
-			flist << ['totalChargingTime' : srcMap.attributes.statistics.totalChargingTime /3600]
-			flist << ['totalCuttingTime' : srcMap.attributes.statistics.totalCuttingTime /3600]
-			flist << ['totalRunningTime' : srcMap.attributes.statistics.totalRunningTime /3600]
-			flist << ['totalSearchingTime' : srcMap.attributes.statistics.totalSearchingTime /3600]
+			try {
+				flist << ['numberOfChargingCycles': srcMap.attributes.statistics.numberOfChargingCycles]
+				flist << ['numberOfCollisions': collisions]
+				flist << ['totalChargingTime': srcMap.attributes.statistics.totalChargingTime / 3600]
+				flist << ['totalCuttingTime': srcMap.attributes.statistics.totalCuttingTime / 3600]
+				flist << ['totalRunningTime': srcMap.attributes.statistics.totalRunningTime / 3600]
+				flist << ['totalSearchingTime': srcMap.attributes.statistics.totalSearchingTime / 3600]
+				flist << ['cuttingBladeUsageTime': srcMap.attributes.statistics.cuttingBladeUsageTime / 3600]
+			} catch(ignored){}
 
 			flist << [apiConnected: apiConnection]
 			flist << [lastPoll: slastPoll]
