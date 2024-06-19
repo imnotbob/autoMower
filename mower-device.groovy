@@ -10,11 +10,15 @@
  *	on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
  *	for the specific language governing permissions and limitations under the License.
  *
- *  Modified July 24, 2022
+ *  Modified June 18, 2024
+ *
+ * lgk 6/24 issue where mower keeps alerting parked_in_cs then charging then repeat and rinse..
+ * to get around this i will ignore parked_in_cs when last mower activity was charging.
+ * this is to stop getting numerous alerts
  */
 //file:noinspection unused
 
-static String getVersionNum()		{ return "00.00.04" }
+static String getVersionNum()		{ return "00.00.05" }
 static String getVersionLabel() 	{ return "Husqvarna AutoMower, version ${getVersionNum()}" }
 
 import groovy.transform.Field
@@ -85,6 +89,10 @@ metadata{
 		attribute 'totalCuttingTime', 'NUMBER'
 		attribute 'totalRunningTime', 'NUMBER'
 		attribute 'totalSearchingTime', 'NUMBER'
+//		attribute 'longitude', 'NUMBER'
+//		attribute 'latitude', 'NUMBER'
+//		attribute 'lastUpdate', 'String'
+//		attribute 'nextRun', 'String'
 
 		command "start",		 		[[name: 'Duration*', type: 'NUMBER', description: 'Minutes']] // duration
 		command "pause", 				[]
@@ -266,8 +274,27 @@ def generateEvent(List<Map<String,Object>> updates){
 							break
 					}
 					if(event){
-						if(debugLevelFour) LOG(msgH+"calling sendevent(${event})", 4, sTRACE)
-						sendEvent(event)
+
+						// lgk new code block to stop parked in cs, charging repeat storm
+						String thename = event.name
+						String thevalue = event.value
+						Boolean doUpdate; doUpdate = true
+						if (thename == "mowerActivity") {
+							// lgk is last was already charging and we get a parked in cs ignore it so we dont get 100 messages
+							String lastActivity = device.currentValue(thename, true)
+							if(debugLevelFour) LOG(msgH+"got lastActivity = $lastActivity new value = $thevalue",4, sTRACE)
+
+							if (lastActivity == "CHARGING" && thevalue == "PARKED_IN_CS") {
+								if(debugLevelFour) LOG(msgH+"Got PARKED_IN_CS when last activity was CHARGING... so ignoring it!",4, sTRACE)
+								doUpdate = false
+							}
+						}
+
+						if (doUpdate) {
+							if(debugLevelFour) LOG(msgH+"calling sendevent(${event})", 4, sTRACE)
+							sendEvent(event)
+						}
+
 					}
 				} else LOG(msgH+"${name} did not change", 5, sTRACE)
 			}
