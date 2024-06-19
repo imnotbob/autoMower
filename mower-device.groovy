@@ -18,7 +18,7 @@
  */
 //file:noinspection unused
 
-static String getVersionNum()		{ return "00.00.05" }
+static String getVersionNum()		{ return "00.00.06" }
 static String getVersionLabel() 	{ return "Husqvarna AutoMower, version ${getVersionNum()}" }
 
 import groovy.transform.Field

@@ -10,7 +10,7 @@
  *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
  *  for the specific language governing permissions and limitations under the License.
  *
- *  Modified July 24, 2022
+ *  Modified June 19, 2024
  */
 
 // NOTICE: This device will not work on SmartThings
@@ -20,7 +20,7 @@
 //file:noinspection UnnecessaryQualifiedReference
 //file:noinspection GroovyUnusedAssignment
 
-static String getVersionNum()		{ return "00.00.04" }
+static String getVersionNum()		{ return "00.00.06" }
 static String getVersionLabel() 	{ return "Husqvarna AutoMower webSocket, version ${getVersionNum()}" }
 
 import groovy.transform.Field
@@ -30,8 +30,8 @@ import java.text.SimpleDateFormat
 //************************************************
 //*			   STATIC VARIABLES			   *
 //************************************************
-@Field static final String devVersionFLD = '0.0.3.0'
-@Field static final String devModifiedFLD= '2022-07-15'
+@Field static final String devVersionFLD = '0.0.6.0'
+@Field static final String devModifiedFLD= '2024-06-19'
 @Field static final String sNULL		 = (String)null
 @Field static final String sBLANK		= ''
 @Field static final String sSPACE		= ' '

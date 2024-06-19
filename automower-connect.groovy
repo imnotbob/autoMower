@@ -10,7 +10,7 @@
  *
  *	Husqvarna AutoMower
  *
- *  Modified August 25, 2022
+ *  Modified June 19, 2024
  *
  *  Instructions:
  *	Go to developer.husqvarnagroup.cloud
@@ -35,7 +35,7 @@ import groovy.json.*
 import groovy.transform.Field
 import java.text.SimpleDateFormat
 
-static String getVersionNum()		{ return "00.00.05" }
+static String getVersionNum()		{ return "00.00.06" }
 static String getVersionLabel()		{ return "Husqvarna Automower Manager, version "+getVersionNum() }
 static String getMyNamespace()		{ return "imnotbob" }
 
