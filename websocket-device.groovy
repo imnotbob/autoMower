@@ -159,7 +159,8 @@ def connect(){
 		logTrace("connect called")
 		String url= getWssEndpoint()
 		// log.info "Connect URL: $url"
-		interfaces.webSocket.connect(url, headers: headers)
+		interfaces.webSocket.connect(url, headers: headers, pingInterval: 60)
+		//interfaces.webSocket.sendMessage('ping')
 	} catch(ex){
 		logError("WebSocket connect failed | ${ex}", false, ex)
 	}

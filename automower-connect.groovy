@@ -10,7 +10,7 @@
  *
  *	Husqvarna AutoMower
  *
- *  Modified June 19, 2024
+ *  Modified December 6,2024
  *
  *  Instructions:
  *	Go to developer.husqvarnagroup.cloud
@@ -35,7 +35,7 @@ import groovy.json.*
 import groovy.transform.Field
 import java.text.SimpleDateFormat
 
-static String getVersionNum()		{ return "00.00.06" }
+static String getVersionNum()		{ return "00.00.07" }
 static String getVersionLabel()		{ return "Husqvarna Automower Manager, version "+getVersionNum() }
 static String getMyNamespace()		{ return "imnotbob" }
 
@@ -708,6 +708,15 @@ void wsEvtHandler(Map evt){
 
 	if(mower && typ){
 		switch(typ){
+			case 'battery-event-v2':
+			case 'calendar-event-v2':
+			case 'cuttingHeight-event-v2':
+			case 'headlights-event-v2':
+			case 'messages-event-v2':
+			case 'mower-event-v2':
+			case 'planner-event-v2':
+			case 'position-event-v2':
+
 			case 'status-event':
 
 			case 'positions-event':
@@ -717,18 +726,20 @@ void wsEvtHandler(Map evt){
 					Map ma= (Map)mdata[dni].attributes
 					((Map)evt.attributes).each {
 						LOG("wsEvtHandler - type: ${typ} key: ${it.key} value: ${it.value}", 4, sDEBUG)
+						/*
 						if((String)it.key in ['cuttingHeight','headlight']){
 							Map mas= (Map)ma.settings
 							mas[it.key]=it.value
 							didChg=true
 						}else{
-							if((String)it.key in ['calendar','positions','battery','mower','metadata','planner','statistics']){
+						 */
+							if((String)it.key in ['calendar','position','battery','mower','metadata','planner','statistics','message','position', 'cuttingHeight', 'headlight']){
 								ma[it.key]=it.value
 								didChg=true
 							}else{
 								LOG("wsEvtHandler NOT FOUND - type: ${typ} key: ${it.key} value: ${it.value}", 4, sDEBUG)
 							}
-						}
+						//}
 					}
 					//LOG("wsEvtHandler mdata[${dni}]: ${mdata[dni]}", 4, sDEBUG)
 					//LOG("wsEvtHandler ma: ${ma}", 4, sDEBUG)
