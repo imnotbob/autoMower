@@ -10,7 +10,7 @@
  *	on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
  *	for the specific language governing permissions and limitations under the License.
  *
- *  Modified June 18, 2024
+ *  Modified May 3, 2025
  *
  * lgk 6/24 issue where mower keeps alerting parked_in_cs then charging then repeat and rinse..
  * to get around this i will ignore parked_in_cs when last mower activity was charging.
@@ -18,7 +18,7 @@
  */
 //file:noinspection unused
 
-static String getVersionNum()		{ return "00.00.06" }
+static String getVersionNum()		{ return "00.00.08" }
 static String getVersionLabel() 	{ return "Husqvarna AutoMower, version ${getVersionNum()}" }
 
 import groovy.transform.Field
@@ -103,6 +103,7 @@ metadata{
 		command "setCuttingHeight",		[[name: 'Height*', type: 'NUMBER', description: 'Level']]
 		command "setHeadlightMode",		[[name: 'Mode*', type: 'ENUM', description: 'Mode', constraints: ["ALWAYS_ON", "ALWAYS_OFF", "EVENING_ONLY", "EVENING_AND_NIGHT"]]] // mode
 		command "setSchedule",			[[name: 'taskList*', type: 'STRING', description: 'Task List']]
+		command "resetCuttingBladeTime", []
 	}
 
 	preferences{
@@ -359,6 +360,14 @@ void resumeSchedule(){
 	if(parent.sendCmdToHusqvarna((String)state.id, foo)){
 		LOG("resumeSchedule() sent",4, sTRACE)
 	}
+}
+
+void resetCuttingBladeTime(){
+	LOG("resetCuttingBladeTime",3,sTRACE)
+	if(parent.sendCmdToHusqvarna((String)state.id, [:], false, 'statistics/resetCuttingBladeUsageTime')){
+		LOG("resetCuttingBladeTime() sent",4, sTRACE)
+	}
+
 }
 
 void setCuttingHeight(level){

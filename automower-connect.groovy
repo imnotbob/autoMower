@@ -10,7 +10,7 @@
  *
  *	Husqvarna AutoMower
  *
- *  Modified December 6,2024
+ *  Modified May 3, 2025
  *
  *  Instructions:
  *	Go to developer.husqvarnagroup.cloud
@@ -35,7 +35,7 @@ import groovy.json.*
 import groovy.transform.Field
 import java.text.SimpleDateFormat
 
-static String getVersionNum()		{ return "00.00.07" }
+static String getVersionNum()		{ return "00.00.08" }
 static String getVersionLabel()		{ return "Husqvarna Automower Manager, version "+getVersionNum() }
 static String getMyNamespace()		{ return "imnotbob" }
 
@@ -1986,6 +1986,24 @@ void generateEventLocalParams(){
 		"125":	"Battery needs replacement",
 		"126":	"Battery near end of life",
 		"127":	"Battery problem",
+		"128":	"Multiple reference stations detected",
+		"129":	"Auxiliary cutting means blocked",
+		"130":	"Imbalanced auxiliary cutting disc detected",
+		"131":	"Lifted in link arm",
+		"132":	"EPOS accessory missing",
+		"133":	"Bluetooth com with CS failed",
+		"134": "Invalid SW configuration",
+		"135": "Radar problem",
+		"136": "Work area tampered",
+		"137": "High temperature in cutting motor, right",
+		"138": "High temperature in cutting motor, center",
+		"139": "High temperature in cutting motor, left",
+		"141": "Wheel brush motor problem",
+		"143": "Accessory power problem",
+		"144": "Boundary wire problem",
+		"145": "No correction data available",
+		"147": "Cutting disc lost",
+		"148": "Chassis collision",
 		"701":	"Connectivity problem",
 		"702":	"Connectivity settings restored",
 		"703":	"Connectivity problem",
