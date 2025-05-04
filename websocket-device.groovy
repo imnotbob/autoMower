@@ -20,7 +20,7 @@
 //file:noinspection UnnecessaryQualifiedReference
 //file:noinspection GroovyUnusedAssignment
 
-static String getVersionNum()		{ return "00.00.06" }
+static String getVersionNum()		{ return "00.00.08" }
 static String getVersionLabel() 	{ return "Husqvarna AutoMower webSocket, version ${getVersionNum()}" }
 
 import groovy.transform.Field
@@ -30,8 +30,8 @@ import java.text.SimpleDateFormat
 //************************************************
 //*			   STATIC VARIABLES			   *
 //************************************************
-@Field static final String devVersionFLD = '0.0.6.0'
-@Field static final String devModifiedFLD= '2024-06-19'
+@Field static final String devVersionFLD = '0.0.8.0'
+@Field static final String devModifiedFLD= '2025-05-04'
 @Field static final String sNULL		 = (String)null
 @Field static final String sBLANK		= ''
 @Field static final String sSPACE		= ' '

@@ -1,13 +1,13 @@
 {
   "packageName": "Husqvarna AutoMower Manager",
   "author": "imnot_bob",
-  "version": "0.0.06",
+  "version": "0.0.08",
   "minimumHEVersion": "2.2.4",
   "licenseFile": "https://raw.githubusercontent.com/imnotbob/autoMower/master/LICENSE",
-  "releaseNotes": "Latest release for AutoMower support. Less charging/parked oscilation",
+  "releaseNotes": "Latest release for AutoMower support. Update to new websocket API",
   "documentationLink": "https://wiki.webcore.co",
   "communityLink": "https://community.hubitat.com/t/husqvarna-automower-integration/76550",
-  "dateReleased": "2024-06-19",
+  "dateReleased": "2025-05-04",
   "apps": [
     {
       "id": "cb649f7b-d33d-82b9-82c3-79d1d2101fea",
